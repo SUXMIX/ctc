@@ -289,8 +289,123 @@ function validateOlympiad(data) {
   return null;
 }
 
+async function setupAdmin(request, env) {
+  const authorization = request.headers.get("Authorization");
+
+  if (!authorization) {
+    return response(
+      request,
+      env,
+      { error: "Não autorizado." },
+      401
+    );
+  }
+
+  const expected = `Bearer ${env.ADMIN_SETUP_TOKEN}`;
+
+  if (authorization !== expected) {
+    return response(
+      request,
+      env,
+      { error: "Não autorizado." },
+      401
+    );
+  }
+
+  try {
+    const body = await request.json();
+
+    const name = body.name?.trim();
+    const email = body.email?.trim().toLowerCase();
+    const password = body.password;
+
+    if (!name || !email || !password) {
+      return response(
+        request,
+        env,
+        { error: "Nome, e-mail e senha são obrigatórios." },
+        400
+      );
+    }
+
+    if (password.length < 10) {
+      return response(
+        request,
+        env,
+        { error: "A senha deve ter pelo menos 10 caracteres." },
+        400
+      );
+    }
+
+    const existingAdmin = await env.DB.prepare(
+      "SELECT id FROM users WHERE role = 'admin' LIMIT 1"
+    ).first();
+
+    if (existingAdmin) {
+      return response(
+        request,
+        env,
+        { error: "O administrador inicial já foi criado." },
+        409
+      );
+    }
+
+    const existingUser = await env.DB.prepare(
+      "SELECT id FROM users WHERE email = ? LIMIT 1"
+    )
+      .bind(email)
+      .first();
+
+    if (existingUser) {
+      return response(
+        request,
+        env,
+        { error: "Este e-mail já está cadastrado." },
+        409
+      );
+    }
+
+    const passwordHash = await createPasswordHash(password);
+
+    const result = await env.DB.prepare(
+      `
+      INSERT INTO users (
+        name,
+        email,
+        password_hash,
+        role
+      )
+      VALUES (?, ?, ?, 'admin')
+      `
+    )
+      .bind(name, email, passwordHash)
+      .run();
+
+    return response(
+      request,
+      env,
+      {
+        ok: true,
+        message: "Administrador criado com sucesso.",
+        user_id: result.meta.last_row_id,
+      },
+      201
+    );
+  } catch (error) {
+    console.error("Admin setup error:", error);
+
+    return response(
+      request,
+      env,
+      { error: "Erro ao criar administrador." },
+      500
+    );
+  }
+}
+
 export default {
   async fetch(request, env) {
+    
     const url = new URL(request.url);
     const path = url.pathname;
 
@@ -302,6 +417,10 @@ export default {
       });
     }
 
+    if (path === "/api/setup-admin" &&request.method === "POST") {
+    return setupAdmin(request, env);
+    }
+    
     // Endpoint básico para verificar se o Worker está online.
     if (path === "/" && request.method === "GET") {
       return response(request, env, {
