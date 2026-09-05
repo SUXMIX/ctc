@@ -11,48 +11,93 @@ const modal = document.getElementById("detailsModal");
 
 function esc(value) {
   return String(value ?? "").replace(/[&<>"']/g, c => ({
-    "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#039;"
   }[c]));
 }
 
 function formatDate(value) {
   if (!value) return "—";
-  const [y,m,d] = value.split("-");
-  return y && m && d ? `${d}/${m}/${y}` : value;
+
+  const [y, m, d] = value.split("-");
+
+  return y && m && d
+    ? `${d}/${m}/${y}`
+    : value;
 }
 
 function render(items) {
   tableBody.innerHTML = items.map(o => `
     <tr data-id="${o.id}">
-      <td><strong>${esc(o.acronym)}</strong></td>
-      <td>${esc(o.name)}</td>
-      <td>${esc(o.area) || "—"}</td>
-      <td>${esc(o.modality) || "—"}</td>
-      <td>${esc(o.registration_method) || "—"}</td>
-      <td>${formatDate(o.registration_deadline)}</td>
-      <td>${o.number_of_phases ?? "—"}</td>
-      <td><span class="status">${esc(o.status) || "—"}</span></td>
+      <td>
+        <strong>${esc(o.acronym)}</strong>
+      </td>
+
+      <td>
+        ${esc(o.name)}
+      </td>
+
+      <td>
+        ${esc(o.area) || "—"}
+      </td>
+
+      <td>
+        ${esc(o.modality) || "—"}
+      </td>
+
+      <td>
+        ${esc(o.registration_method) || "—"}
+      </td>
+
+      <td>
+        ${formatDate(o.registration_deadline)}
+      </td>
+
+      <td>
+        ${o.number_of_phases ?? "—"}
+      </td>
+
+      <td>
+        <span class="status">
+          ${esc(o.status) || "—"}
+        </span>
+      </td>
     </tr>
   `).join("");
 
   mobileList.innerHTML = items.map(o => `
     <button class="mobile-item" data-id="${o.id}">
-      <span><strong>${esc(o.acronym)}</strong>${esc(o.name)}</span>
-      <span>${esc(o.area) || "—"} →</span>
+      <span>
+        <strong>${esc(o.acronym)}</strong>
+        ${esc(o.name)}
+      </span>
+
+      <span>
+        ${esc(o.area) || "—"} →
+      </span>
     </button>
   `).join("");
 
   document.querySelectorAll("[data-id]").forEach(el => {
-    el.addEventListener("click", () => openDetails(Number(el.dataset.id)));
+    el.addEventListener("click", () => {
+      openDetails(Number(el.dataset.id));
+    });
   });
 }
 
 function openDetails(id) {
   const o = olympiads.find(item => item.id === id);
+
   if (!o) return;
 
-  document.getElementById("modalArea").textContent = o.area || "Oportunidade";
-  document.getElementById("modalTitle").textContent = `${o.acronym} — ${o.name}`;
+  document.getElementById("modalArea").textContent =
+    o.area || "Oportunidade";
+
+  document.getElementById("modalTitle").textContent =
+    `${o.acronym} — ${o.name}`;
 
   const details = [
     ["Área", o.area],
@@ -69,8 +114,17 @@ function openDetails(id) {
   ];
 
   document.getElementById("modalDetails").innerHTML = details
-    .filter(([,v]) => v !== null && v !== undefined && v !== "")
-    .map(([label, value]) => `<div class="detail"><small>${esc(label)}</small><strong>${esc(value)}</strong></div>`)
+    .filter(([, value]) =>
+      value !== null &&
+      value !== undefined &&
+      value !== ""
+    )
+    .map(([label, value]) => `
+      <div class="detail">
+        <small>${esc(label)}</small>
+        <strong>${esc(value)}</strong>
+      </div>
+    `)
     .join("");
 
   modal.classList.remove("hidden");
@@ -78,48 +132,70 @@ function openDetails(id) {
 
 async function loadOlympiads() {
   if (!API_URL || API_URL.includes("SEU-WORKER-AQUI")) {
-    // Demonstração local até a API existir.
-    olympiads = [
-      {
-        id: 1, acronym: "OBMEP",
-        name: "Olimpíada Brasileira de Matemática das Escolas Públicas",
-        area: "Matemática", modality: "Individual",
-        registration_method: "Escola", registration_deadline: "2026-03-10",
-        number_of_phases: 2, phase_1_date: "2026-06-09",
-        phase_2_date: "2026-10-17", status: "Inscrito",
-        extra: "Exemplo local. Será substituído pelo banco de dados."
-      },
-      {
-        id: 2, acronym: "OBF",
-        name: "Olimpíada Brasileira de Física",
-        area: "Física", modality: "Individual",
-        registration_method: "Escola", registration_deadline: "2026-04-15",
-        number_of_phases: 3, status: "Não inscrito"
-      }
-    ];
     loading.classList.add("hidden");
-    render(olympiads);
+    errorBox.classList.remove("hidden");
     return;
   }
 
   try {
-    const response = await fetch(`${API_URL}/api/olympiads`);
-    if (!response.ok) throw new Error("API error");
-    olympiads = await response.json();
+    const response = await fetch(
+      `${API_URL}/api/olympiads`
+    );
+
+    if (!response.ok) {
+      throw new Error("Não foi possível carregar os dados.");
+    }
+
+    const result = await response.json();
+
+    /*
+      O Worker retorna:
+
+      {
+        olympiads: [...]
+      }
+
+      Portanto, precisamos pegar somente o array.
+    */
+    if (!Array.isArray(result.olympiads)) {
+      throw new Error("Formato de dados inválido.");
+    }
+
+    olympiads = result.olympiads;
+
     loading.classList.add("hidden");
+    errorBox.classList.add("hidden");
+
     render(olympiads);
-  } catch {
+
+  } catch (error) {
+    console.error("Erro ao carregar olimpíadas:", error);
+
     loading.classList.add("hidden");
     errorBox.classList.remove("hidden");
   }
 }
 
 searchInput?.addEventListener("input", () => {
-  const term = searchInput.value.toLowerCase().trim();
-  render(olympiads.filter(o =>
-    [o.acronym, o.name, o.area, o.modality, o.status]
-      .some(v => String(v ?? "").toLowerCase().includes(term))
-  ));
+  const term = searchInput.value
+    .toLowerCase()
+    .trim();
+
+  const filtered = olympiads.filter(o =>
+    [
+      o.acronym,
+      o.name,
+      o.area,
+      o.modality,
+      o.status
+    ].some(value =>
+      String(value ?? "")
+        .toLowerCase()
+        .includes(term)
+    )
+  );
+
+  render(filtered);
 });
 
 loadOlympiads();
