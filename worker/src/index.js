@@ -36,8 +36,21 @@ function corsHeaders(request, env) {
   return headers;
 }
 
-function response(request, env, data, status = 200) {
-  return json(data, status, corsHeaders(request, env));
+function response(
+  request,
+  env,
+  data,
+  status = 200,
+  extraHeaders = {}
+) {
+  return json(
+    data,
+    status,
+    {
+      ...corsHeaders(request, env),
+      ...extraHeaders,
+    }
+  );
 }
 
 function getCookie(request, name) {
@@ -664,19 +677,22 @@ if (
           .run();
 
         return response(
-          request,
-          env,
-          {
-            ok: true,
-            user: {
-              id: user.id,
-              name: user.name,
-              email: user.email,
-              role: user.role,
-            },
-          },
-          200
-        );
+  request,
+  env,
+  {
+    ok: true,
+    user: {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+    },
+  },
+  200,
+  {
+    "Set-Cookie": sessionCookie(token, sessionDays * 24 * 60 * 60),
+  }
+);
       } catch (error) {
         console.error("Login error:", error);
 
