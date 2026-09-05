@@ -108,7 +108,7 @@ export default {
 
     try {
       // Público
-      if (url.pathname === "/api/olympiads" && request.method === "GET") {
+      if (url.pathname.match(/^\/api\/olympiads\/\d+$/) && request.method === "GET") {
         const {results} = await env.DB.prepare(`
           SELECT * FROM olympiads
           ORDER BY
