@@ -584,6 +584,7 @@ if (
       {
         error:
           "Erro interno ao criar administrador.",
+          details: error?.message || String(error),
       },
       500
     );
