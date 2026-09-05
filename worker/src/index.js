@@ -2,7 +2,7 @@ const JSON_HEADERS = {
   "Content-Type": "application/json; charset=UTF-8",
 };
 
-const PBKDF2_ITERATIONS = 150000;
+const PBKDF2_ITERATIONS = 100000;
 
 function json(data, status = 200, extraHeaders = {}) {
   return new Response(JSON.stringify(data), {
