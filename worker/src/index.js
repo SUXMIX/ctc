@@ -433,6 +433,162 @@ export default {
     // LOGIN
     // =========================================================
 
+
+    // =========================================================
+// BOOTSTRAP DO PRIMEIRO ADMINISTRADOR
+// =========================================================
+
+if (
+  path === "/api/bootstrap-admin" &&
+  request.method === "POST"
+) {
+  try {
+    const bootstrapSecret =
+      request.headers.get("X-Bootstrap-Secret");
+
+    if (
+      !bootstrapSecret ||
+      !env.ADMIN_BOOTSTRAP_SECRET ||
+      bootstrapSecret !== env.ADMIN_BOOTSTRAP_SECRET
+    ) {
+      return response(
+        request,
+        env,
+        { error: "Não autorizado." },
+        401
+      );
+    }
+
+    // A rota só pode ser usada enquanto não existir
+    // nenhum administrador.
+    const existingAdmin = await env.DB.prepare(
+      `
+      SELECT id
+      FROM users
+      WHERE role = 'admin'
+      LIMIT 1
+      `
+    ).first();
+
+    if (existingAdmin) {
+      return response(
+        request,
+        env,
+        {
+          error:
+            "O administrador inicial já foi criado. Esta rota está desativada.",
+        },
+        403
+      );
+    }
+
+    const body = await request.json();
+
+    const name = body.name?.trim();
+    const email = body.email?.trim().toLowerCase();
+    const password = body.password;
+
+    if (!name || !email || !password) {
+      return response(
+        request,
+        env,
+        {
+          error:
+            "Nome, e-mail e senha são obrigatórios.",
+        },
+        400
+      );
+    }
+
+    if (password.length < 12) {
+      return response(
+        request,
+        env,
+        {
+          error:
+            "A senha deve possuir pelo menos 12 caracteres.",
+        },
+        400
+      );
+    }
+
+    // Verifica se o e-mail já está cadastrado.
+    const existingUser = await env.DB.prepare(
+      `
+      SELECT id
+      FROM users
+      WHERE email = ?
+      LIMIT 1
+      `
+    )
+      .bind(email)
+      .first();
+
+    if (existingUser) {
+      return response(
+        request,
+        env,
+        {
+          error:
+            "Já existe um usuário com esse e-mail.",
+        },
+        409
+      );
+    }
+
+    const passwordHash = await createPasswordHash(password);
+
+    const result = await env.DB.prepare(
+      `
+      INSERT INTO users (
+        name,
+        email,
+        password_hash,
+        role
+      )
+      VALUES (?, ?, ?, 'admin')
+      `
+    )
+      .bind(
+        name,
+        email,
+        passwordHash
+      )
+      .run();
+
+    return response(
+      request,
+      env,
+      {
+        ok: true,
+        message:
+          "Administrador criado com sucesso.",
+        user: {
+          id: result.meta.last_row_id,
+          name,
+          email,
+          role: "admin",
+        },
+      },
+      201
+    );
+  } catch (error) {
+    console.error(
+      "Bootstrap admin error:",
+      error
+    );
+
+    return response(
+      request,
+      env,
+      {
+        error:
+          "Erro interno ao criar administrador.",
+      },
+      500
+    );
+  }
+}
     if (path === "/api/login" && request.method === "POST") {
       try {
         const body = await request.json();
