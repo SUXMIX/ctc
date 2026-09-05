@@ -119,7 +119,10 @@ function hexToBytes(hex) {
   const bytes = new Uint8Array(hex.length / 2);
 
   for (let i = 0; i < bytes.length; i++) {
-    bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+    bytes[i] = parseInt(
+      hex.slice(i * 2, i * 2 + 2),
+      16
+    );
   }
 
   return bytes;
@@ -139,39 +142,49 @@ function constantTimeEqual(a, b) {
   return result === 0;
 }
 
-async function derivePasswordHash(password, salt, iterations) {
+async function derivePasswordHash(
+  password,
+  salt,
+  iterations
+) {
   const encoder = new TextEncoder();
 
-  const keyMaterial = await crypto.subtle.importKey(
-    "raw",
-    encoder.encode(password),
-    "PBKDF2",
-    false,
-    ["deriveBits"]
-  );
+  const keyMaterial =
+    await crypto.subtle.importKey(
+      "raw",
+      encoder.encode(password),
+      "PBKDF2",
+      false,
+      ["deriveBits"]
+    );
 
-  const derivedBits = await crypto.subtle.deriveBits(
-    {
-      name: "PBKDF2",
-      salt,
-      iterations,
-      hash: "SHA-256",
-    },
-    keyMaterial,
-    256
-  );
+  const derivedBits =
+    await crypto.subtle.deriveBits(
+      {
+        name: "PBKDF2",
+        salt,
+        iterations,
+        hash: "SHA-256",
+      },
+      keyMaterial,
+      256
+    );
 
   return new Uint8Array(derivedBits);
 }
 
 async function createPasswordHash(password) {
-  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const salt =
+    crypto.getRandomValues(
+      new Uint8Array(16)
+    );
 
-  const hash = await derivePasswordHash(
-    password,
-    salt,
-    PBKDF2_ITERATIONS
-  );
+  const hash =
+    await derivePasswordHash(
+      password,
+      salt,
+      PBKDF2_ITERATIONS
+    );
 
   return [
     "pbkdf2",
@@ -181,9 +194,19 @@ async function createPasswordHash(password) {
   ].join("$");
 }
 
-async function verifyPassword(password, storedHash) {
+async function verifyPassword(
+  password,
+  storedHash
+) {
   try {
-    const parts = storedHash.split("$");
+    if (
+      typeof storedHash !== "string"
+    ) {
+      return false;
+    }
+
+    const parts =
+      storedHash.split("$");
 
     if (parts.length !== 4) {
       return false;
@@ -198,20 +221,30 @@ async function verifyPassword(password, storedHash) {
       return false;
     }
 
-    if (!Number.isInteger(iterations) || iterations <= 0) {
+    if (
+      !Number.isInteger(iterations) ||
+      iterations <= 0
+    ) {
       return false;
     }
 
-    const salt = hexToBytes(saltHex);
-    const expectedHash = hexToBytes(hashHex);
+    const salt =
+      hexToBytes(saltHex);
 
-    const actualHash = await derivePasswordHash(
-      password,
-      salt,
-      iterations
+    const expectedHash =
+      hexToBytes(hashHex);
+
+    const actualHash =
+      await derivePasswordHash(
+        password,
+        salt,
+        iterations
+      );
+
+    return constantTimeEqual(
+      actualHash,
+      expectedHash
     );
-
-    return constantTimeEqual(actualHash, expectedHash);
   } catch {
     return false;
   }
@@ -222,29 +255,45 @@ async function verifyPassword(password, storedHash) {
 // ============================================================
 
 function generateSessionToken() {
-  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  const bytes =
+    crypto.getRandomValues(
+      new Uint8Array(32)
+    );
+
   return bytesToHex(bytes);
 }
 
-async function createSession(env, userId) {
-  const token = generateSessionToken();
+async function createSession(
+  env,
+  userId
+) {
+  const token =
+    generateSessionToken();
 
-  const sessionDays = Number(env.SESSION_DAYS || 7);
+  const sessionDays =
+    Number(env.SESSION_DAYS || 7);
 
   const maxAge = Math.max(
     1,
     sessionDays * 24 * 60 * 60
   );
 
-  const expiresAt = Math.floor(Date.now() / 1000) + maxAge;
+  const expiresAt =
+    Math.floor(Date.now() / 1000) +
+    maxAge;
 
   await env.DB.prepare(
     `
-    INSERT INTO sessions (id, user_id, expires_at)
+    INSERT INTO sessions
+      (id, user_id, expires_at)
     VALUES (?, ?, ?)
     `
   )
-    .bind(token, userId, expiresAt)
+    .bind(
+      token,
+      userId,
+      expiresAt
+    )
     .run();
 
   return {
@@ -254,44 +303,59 @@ async function createSession(env, userId) {
   };
 }
 
-async function getAuthenticatedUser(request, env) {
-  const token = getCookie(
-    request,
-    SESSION_COOKIE_NAME
-  );
+async function getAuthenticatedUser(
+  request,
+  env
+) {
+  const token =
+    getCookie(
+      request,
+      SESSION_COOKIE_NAME
+    );
 
   if (!token) {
     return null;
   }
 
-  const now = Math.floor(Date.now() / 1000);
+  const now =
+    Math.floor(
+      Date.now() / 1000
+    );
 
-  const result = await env.DB.prepare(
-    `
-    SELECT
-      users.id,
-      users.name,
-      users.email,
-      users.role
-    FROM sessions
-    INNER JOIN users
-      ON users.id = sessions.user_id
-    WHERE sessions.id = ?
-      AND sessions.expires_at > ?
-    LIMIT 1
-    `
-  )
-    .bind(token, now)
-    .first();
+  const result =
+    await env.DB.prepare(
+      `
+      SELECT
+        users.id,
+        users.name,
+        users.email,
+        users.role
+      FROM sessions
+      INNER JOIN users
+        ON users.id = sessions.user_id
+      WHERE sessions.id = ?
+        AND sessions.expires_at > ?
+      LIMIT 1
+      `
+    )
+      .bind(
+        token,
+        now
+      )
+      .first();
 
   return result || null;
 }
 
-async function deleteSession(request, env) {
-  const token = getCookie(
-    request,
-    SESSION_COOKIE_NAME
-  );
+async function deleteSession(
+  request,
+  env
+) {
+  const token =
+    getCookie(
+      request,
+      SESSION_COOKIE_NAME
+    );
 
   if (!token) {
     return;
@@ -323,43 +387,59 @@ function isValidEmail(email) {
   return (
     typeof email === "string" &&
     email.length <= 254 &&
-    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(
+      email
+    )
   );
-}
-
-function requireAuthenticatedUser(user) {
-  return user !== null;
 }
 
 function requireEditor(user) {
   return (
     user &&
-    (user.role === "editor" || user.role === "admin")
+    (
+      user.role === "editor" ||
+      user.role === "admin"
+    )
   );
 }
 
 function requireAdmin(user) {
-  return user && user.role === "admin";
+  return (
+    user &&
+    user.role === "admin"
+  );
 }
 
 // ============================================================
 // HEALTH CHECK
 // ============================================================
 
-async function handleRoot(request, env) {
-  return response(request, env, {
-    ok: true,
-    service: "ctc-api",
-    message: "API do CTC funcionando.",
-  });
+async function handleRoot(
+  request,
+  env
+) {
+  return response(
+    request,
+    env,
+    {
+      ok: true,
+      service: "ctc-api",
+      message:
+        "API do CTC funcionando.",
+    }
+  );
 }
 
 // ============================================================
 // LOGIN
 // ============================================================
 
-async function handleLogin(request, env) {
-  const body = await readJson(request);
+async function handleLogin(
+  request,
+  env
+) {
+  const body =
+    await readJson(request);
 
   if (!body) {
     return response(
@@ -374,7 +454,9 @@ async function handleLogin(request, env) {
 
   const email =
     typeof body.email === "string"
-      ? body.email.trim().toLowerCase()
+      ? body.email
+          .trim()
+          .toLowerCase()
       : "";
 
   const password =
@@ -382,61 +464,69 @@ async function handleLogin(request, env) {
       ? body.password
       : "";
 
-  if (!isValidEmail(email) || !password) {
+  if (
+    !isValidEmail(email) ||
+    !password
+  ) {
     return response(
       request,
       env,
       {
-        error: "Email ou senha inválidos.",
+        error:
+          "Email ou senha inválidos.",
       },
       400
     );
   }
 
-  const user = await env.DB.prepare(
-    `
-    SELECT
-      id,
-      name,
-      email,
-      password_hash,
-      role
-    FROM users
-    WHERE LOWER(email) = ?
-    LIMIT 1
-    `
-  )
-    .bind(email)
-    .first();
+  const user =
+    await env.DB.prepare(
+      `
+      SELECT
+        id,
+        name,
+        email,
+        password_hash,
+        role
+      FROM users
+      WHERE LOWER(email) = ?
+      LIMIT 1
+      `
+    )
+      .bind(email)
+      .first();
 
   if (!user) {
     return response(
       request,
       env,
       {
-        error: "Email ou senha inválidos.",
+        error:
+          "Email ou senha inválidos.",
       },
       401
     );
   }
 
-  const validPassword = await verifyPassword(
-    password,
-    user.password_hash
-  );
+  const validPassword =
+    await verifyPassword(
+      password,
+      user.password_hash
+    );
 
   if (!validPassword) {
     return response(
       request,
       env,
       {
-        error: "Email ou senha inválidos.",
+        error:
+          "Email ou senha inválidos.",
       },
       401
     );
   }
 
-  // Remove sessões antigas do usuário.
+  // Remove sessões antigas.
   await env.DB.prepare(
     `
     DELETE FROM sessions
@@ -446,10 +536,11 @@ async function handleLogin(request, env) {
     .bind(user.id)
     .run();
 
-  const session = await createSession(
-    env,
-    user.id
-  );
+  const session =
+    await createSession(
+      env,
+      user.id
+    );
 
   return response(
     request,
@@ -465,10 +556,11 @@ async function handleLogin(request, env) {
     },
     200,
     {
-      "Set-Cookie": createSessionCookie(
-        session.token,
-        session.maxAge
-      ),
+      "Set-Cookie":
+        createSessionCookie(
+          session.token,
+          session.maxAge
+        ),
     }
   );
 }
@@ -477,11 +569,15 @@ async function handleLogin(request, env) {
 // ME
 // ============================================================
 
-async function handleMe(request, env) {
-  const user = await getAuthenticatedUser(
-    request,
-    env
-  );
+async function handleMe(
+  request,
+  env
+) {
+  const user =
+    await getAuthenticatedUser(
+      request,
+      env
+    );
 
   if (!user) {
     return response(
@@ -489,8 +585,7 @@ async function handleMe(request, env) {
       env,
       {
         authenticated: false,
-      },
-      200
+      }
     );
   }
 
@@ -500,8 +595,7 @@ async function handleMe(request, env) {
     {
       authenticated: true,
       user,
-    },
-    200
+    }
   );
 }
 
@@ -509,8 +603,14 @@ async function handleMe(request, env) {
 // LOGOUT
 // ============================================================
 
-async function handleLogout(request, env) {
-  await deleteSession(request, env);
+async function handleLogout(
+  request,
+  env
+) {
+  await deleteSession(
+    request,
+    env
+  );
 
   return response(
     request,
@@ -520,8 +620,329 @@ async function handleLogout(request, env) {
     },
     200,
     {
-      "Set-Cookie": createExpiredSessionCookie(),
+      "Set-Cookie":
+        createExpiredSessionCookie(),
     }
+  );
+}
+
+// ============================================================
+// RESET TEMPORÁRIO DA SENHA DO ADMINISTRADOR
+// ============================================================
+
+async function handleResetAdminPassword(
+  request,
+  env
+) {
+  const secret =
+    request.headers.get(
+      "X-Bootstrap-Secret"
+    );
+
+  if (
+    !secret ||
+    !env.ADMIN_BOOTSTRAP_SECRET ||
+    secret !==
+      env.ADMIN_BOOTSTRAP_SECRET
+  ) {
+    return response(
+      request,
+      env,
+      {
+        error: "Não autorizado.",
+      },
+      401
+    );
+  }
+
+  const body =
+    await readJson(request);
+
+  if (!body) {
+    return response(
+      request,
+      env,
+      {
+        error: "JSON inválido.",
+      },
+      400
+    );
+  }
+
+  const email =
+    typeof body.email === "string"
+      ? body.email
+          .trim()
+          .toLowerCase()
+      : "";
+
+  const newPassword =
+    typeof body.password === "string"
+      ? body.password
+      : "";
+
+  if (!isValidEmail(email)) {
+    return response(
+      request,
+      env,
+      {
+        error: "Email inválido.",
+      },
+      400
+    );
+  }
+
+  if (newPassword.length < 12) {
+    return response(
+      request,
+      env,
+      {
+        error:
+          "A senha deve possuir pelo menos 12 caracteres.",
+      },
+      400
+    );
+  }
+
+  const user =
+    await env.DB.prepare(
+      `
+      SELECT
+        id,
+        name,
+        email,
+        role
+      FROM users
+      WHERE LOWER(email) = ?
+        AND role = 'admin'
+      LIMIT 1
+      `
+    )
+      .bind(email)
+      .first();
+
+  if (!user) {
+    return response(
+      request,
+      env,
+      {
+        error:
+          "Administrador não encontrado.",
+      },
+      404
+    );
+  }
+
+  const passwordHash =
+    await createPasswordHash(
+      newPassword
+    );
+
+  await env.DB.prepare(
+    `
+    UPDATE users
+    SET password_hash = ?
+    WHERE id = ?
+    `
+  )
+    .bind(
+      passwordHash,
+      user.id
+    )
+    .run();
+
+  // Invalida todas as sessões existentes.
+  await env.DB.prepare(
+    `
+    DELETE FROM sessions
+    WHERE user_id = ?
+    `
+  )
+    .bind(user.id)
+    .run();
+
+  return response(
+    request,
+    env,
+    {
+      ok: true,
+      message:
+        "Senha do administrador redefinida.",
+    }
+  );
+}
+
+// ============================================================
+// BOOTSTRAP DO PRIMEIRO ADMINISTRADOR
+// ============================================================
+
+async function handleBootstrapAdmin(
+  request,
+  env
+) {
+  const secret =
+    request.headers.get(
+      "X-Bootstrap-Secret"
+    );
+
+  if (
+    !secret ||
+    !env.ADMIN_BOOTSTRAP_SECRET ||
+    secret !==
+      env.ADMIN_BOOTSTRAP_SECRET
+  ) {
+    return response(
+      request,
+      env,
+      {
+        error: "Não autorizado.",
+      },
+      401
+    );
+  }
+
+  const existingAdmin =
+    await env.DB.prepare(
+      `
+      SELECT id
+      FROM users
+      WHERE role = 'admin'
+      LIMIT 1
+      `
+    ).first();
+
+  if (existingAdmin) {
+    return response(
+      request,
+      env,
+      {
+        error:
+          "O administrador inicial já foi criado.",
+      },
+      409
+    );
+  }
+
+  const body =
+    await readJson(request);
+
+  if (!body) {
+    return response(
+      request,
+      env,
+      {
+        error: "JSON inválido.",
+      },
+      400
+    );
+  }
+
+  const name =
+    typeof body.name === "string"
+      ? body.name.trim()
+      : "";
+
+  const email =
+    typeof body.email === "string"
+      ? body.email
+          .trim()
+          .toLowerCase()
+      : "";
+
+  const password =
+    typeof body.password === "string"
+      ? body.password
+      : "";
+
+  if (
+    !name ||
+    !isValidEmail(email)
+  ) {
+    return response(
+      request,
+      env,
+      {
+        error:
+          "Nome ou email inválidos.",
+      },
+      400
+    );
+  }
+
+  if (password.length < 12) {
+    return response(
+      request,
+      env,
+      {
+        error:
+          "A senha deve possuir pelo menos 12 caracteres.",
+      },
+      400
+    );
+  }
+
+  const existingUser =
+    await env.DB.prepare(
+      `
+      SELECT id
+      FROM users
+      WHERE LOWER(email) = ?
+      LIMIT 1
+      `
+    )
+      .bind(email)
+      .first();
+
+  if (existingUser) {
+    return response(
+      request,
+      env,
+      {
+        error:
+          "Já existe um usuário com esse email.",
+      },
+      409
+    );
+  }
+
+  const passwordHash =
+    await createPasswordHash(
+      password
+    );
+
+  const result =
+    await env.DB.prepare(
+      `
+      INSERT INTO users (
+        name,
+        email,
+        password_hash,
+        role
+      )
+      VALUES (?, ?, ?, 'admin')
+      `
+    )
+      .bind(
+        name,
+        email,
+        passwordHash
+      )
+      .run();
+
+  return response(
+    request,
+    env,
+    {
+      ok: true,
+      user: {
+        id:
+          result.meta.last_row_id,
+        name,
+        email,
+        role: "admin",
+      },
+    },
+    201
   );
 }
 
@@ -533,38 +954,40 @@ async function handleListOlympiads(
   request,
   env
 ) {
-  const result = await env.DB.prepare(
-    `
-    SELECT
-      id,
-      acronym,
-      name,
-      area,
-      modality,
-      registration_method,
-      registration_deadline,
-      number_of_phases,
-      phase_1_date,
-      phase_2_date,
-      phase_3_date,
-      phase_4_date,
-      status,
-      extra,
-      created_at,
-      updated_at
-    FROM olympiads
-    ORDER BY
-      registration_deadline IS NULL,
-      registration_deadline ASC,
-      acronym ASC
-    `
-  ).all();
+  const result =
+    await env.DB.prepare(
+      `
+      SELECT
+        id,
+        acronym,
+        name,
+        area,
+        modality,
+        registration_method,
+        registration_deadline,
+        number_of_phases,
+        phase_1_date,
+        phase_2_date,
+        phase_3_date,
+        phase_4_date,
+        status,
+        extra,
+        created_at,
+        updated_at
+      FROM olympiads
+      ORDER BY
+        registration_deadline IS NULL,
+        registration_deadline ASC,
+        acronym ASC
+      `
+    ).all();
 
   return response(
     request,
     env,
     {
-      olympiads: result.results || [],
+      olympiads:
+        result.results || [],
     }
   );
 }
@@ -578,39 +1001,41 @@ async function handleGetOlympiad(
   env,
   id
 ) {
-  const olympiad = await env.DB.prepare(
-    `
-    SELECT
-      id,
-      acronym,
-      name,
-      area,
-      modality,
-      registration_method,
-      registration_deadline,
-      number_of_phases,
-      phase_1_date,
-      phase_2_date,
-      phase_3_date,
-      phase_4_date,
-      status,
-      extra,
-      created_at,
-      updated_at
-    FROM olympiads
-    WHERE id = ?
-    LIMIT 1
-    `
-  )
-    .bind(id)
-    .first();
+  const olympiad =
+    await env.DB.prepare(
+      `
+      SELECT
+        id,
+        acronym,
+        name,
+        area,
+        modality,
+        registration_method,
+        registration_deadline,
+        number_of_phases,
+        phase_1_date,
+        phase_2_date,
+        phase_3_date,
+        phase_4_date,
+        status,
+        extra,
+        created_at,
+        updated_at
+      FROM olympiads
+      WHERE id = ?
+      LIMIT 1
+      `
+    )
+      .bind(id)
+      .first();
 
   if (!olympiad) {
     return response(
       request,
       env,
       {
-        error: "Olimpíada não encontrada.",
+        error:
+          "Olimpíada não encontrada.",
       },
       404
     );
@@ -633,23 +1058,26 @@ async function handleCreateOlympiad(
   request,
   env
 ) {
-  const user = await getAuthenticatedUser(
-    request,
-    env
-  );
+  const user =
+    await getAuthenticatedUser(
+      request,
+      env
+    );
 
   if (!requireEditor(user)) {
     return response(
       request,
       env,
       {
-        error: "Acesso não autorizado.",
+        error:
+          "Acesso não autorizado.",
       },
       401
     );
   }
 
-  const body = await readJson(request);
+  const body =
+    await readJson(request);
 
   if (!body) {
     return response(
@@ -662,29 +1090,53 @@ async function handleCreateOlympiad(
     );
   }
 
-  const acronym = body.acronym || "";
-  const name = body.name || "";
-  const area = body.area || "";
-  const modality = body.modality || "";
+  const acronym =
+    body.acronym || "";
+
+  const name =
+    body.name || "";
+
+  const area =
+    body.area || "";
+
+  const modality =
+    body.modality || "";
+
   const registrationMethod =
     body.registration_method || "";
+
   const registrationDeadline =
-    body.registration_deadline || null;
+    body.registration_deadline ||
+    null;
 
   const numberOfPhases =
-    body.number_of_phases !== undefined &&
-    body.number_of_phases !== null &&
+    body.number_of_phases !==
+      undefined &&
+    body.number_of_phases !==
+      null &&
     body.number_of_phases !== ""
-      ? Number(body.number_of_phases)
+      ? Number(
+          body.number_of_phases
+        )
       : null;
 
-  const phase1 = body.phase_1_date || null;
-  const phase2 = body.phase_2_date || null;
-  const phase3 = body.phase_3_date || null;
-  const phase4 = body.phase_4_date || null;
+  const phase1 =
+    body.phase_1_date || null;
 
-  const status = body.status || "";
-  const extra = body.extra || "";
+  const phase2 =
+    body.phase_2_date || null;
+
+  const phase3 =
+    body.phase_3_date || null;
+
+  const phase4 =
+    body.phase_4_date || null;
+
+  const status =
+    body.status || "";
+
+  const extra =
+    body.extra || "";
 
   if (!acronym || !name) {
     return response(
@@ -698,55 +1150,58 @@ async function handleCreateOlympiad(
     );
   }
 
-  const now = new Date().toISOString();
+  const now =
+    new Date().toISOString();
 
-  const result = await env.DB.prepare(
-    `
-    INSERT INTO olympiads (
-      acronym,
-      name,
-      area,
-      modality,
-      registration_method,
-      registration_deadline,
-      number_of_phases,
-      phase_1_date,
-      phase_2_date,
-      phase_3_date,
-      phase_4_date,
-      status,
-      extra,
-      created_at,
-      updated_at
+  const result =
+    await env.DB.prepare(
+      `
+      INSERT INTO olympiads (
+        acronym,
+        name,
+        area,
+        modality,
+        registration_method,
+        registration_deadline,
+        number_of_phases,
+        phase_1_date,
+        phase_2_date,
+        phase_3_date,
+        phase_4_date,
+        status,
+        extra,
+        created_at,
+        updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `
-  )
-    .bind(
-      acronym,
-      name,
-      area,
-      modality,
-      registrationMethod,
-      registrationDeadline,
-      numberOfPhases,
-      phase1,
-      phase2,
-      phase3,
-      phase4,
-      status,
-      extra,
-      now,
-      now
-    )
-    .run();
+      .bind(
+        acronym,
+        name,
+        area,
+        modality,
+        registrationMethod,
+        registrationDeadline,
+        numberOfPhases,
+        phase1,
+        phase2,
+        phase3,
+        phase4,
+        status,
+        extra,
+        now,
+        now
+      )
+      .run();
 
   return response(
     request,
     env,
     {
       ok: true,
-      id: result.meta.last_row_id,
+      id:
+        result.meta.last_row_id,
     },
     201
   );
@@ -761,23 +1216,26 @@ async function handleUpdateOlympiad(
   env,
   id
 ) {
-  const user = await getAuthenticatedUser(
-    request,
-    env
-  );
+  const user =
+    await getAuthenticatedUser(
+      request,
+      env
+    );
 
   if (!requireEditor(user)) {
     return response(
       request,
       env,
       {
-        error: "Acesso não autorizado.",
+        error:
+          "Acesso não autorizado.",
       },
       401
     );
   }
 
-  const body = await readJson(request);
+  const body =
+    await readJson(request);
 
   if (!body) {
     return response(
@@ -790,39 +1248,45 @@ async function handleUpdateOlympiad(
     );
   }
 
-  const existing = await env.DB.prepare(
-    `
-    SELECT *
-    FROM olympiads
-    WHERE id = ?
-    LIMIT 1
-    `
-  )
-    .bind(id)
-    .first();
+  const existing =
+    await env.DB.prepare(
+      `
+      SELECT *
+      FROM olympiads
+      WHERE id = ?
+      LIMIT 1
+      `
+    )
+      .bind(id)
+      .first();
 
   if (!existing) {
     return response(
       request,
       env,
       {
-        error: "Olimpíada não encontrada.",
+        error:
+          "Olimpíada não encontrada.",
       },
       404
     );
   }
 
   const acronym =
-    body.acronym ?? existing.acronym;
+    body.acronym ??
+    existing.acronym;
 
   const name =
-    body.name ?? existing.name;
+    body.name ??
+    existing.name;
 
   const area =
-    body.area ?? existing.area;
+    body.area ??
+    existing.area;
 
   const modality =
-    body.modality ?? existing.modality;
+    body.modality ??
+    existing.modality;
 
   const registrationMethod =
     body.registration_method ??
@@ -833,12 +1297,17 @@ async function handleUpdateOlympiad(
     existing.registration_deadline;
 
   const numberOfPhases =
-    body.number_of_phases !== undefined
+    body.number_of_phases !==
+      undefined
       ? (
-          body.number_of_phases === null ||
-          body.number_of_phases === ""
+          body.number_of_phases ===
+            null ||
+          body.number_of_phases ===
+            ""
             ? null
-            : Number(body.number_of_phases)
+            : Number(
+                body.number_of_phases
+              )
         )
       : existing.number_of_phases;
 
@@ -859,10 +1328,12 @@ async function handleUpdateOlympiad(
     existing.phase_4_date;
 
   const status =
-    body.status ?? existing.status;
+    body.status ??
+    existing.status;
 
   const extra =
-    body.extra ?? existing.extra;
+    body.extra ??
+    existing.extra;
 
   const updatedAt =
     new Date().toISOString();
@@ -925,37 +1396,41 @@ async function handleDeleteOlympiad(
   env,
   id
 ) {
-  const user = await getAuthenticatedUser(
-    request,
-    env
-  );
+  const user =
+    await getAuthenticatedUser(
+      request,
+      env
+    );
 
   if (!requireAdmin(user)) {
     return response(
       request,
       env,
       {
-        error: "Apenas administradores podem excluir.",
+        error:
+          "Apenas administradores podem excluir.",
       },
       403
     );
   }
 
-  const result = await env.DB.prepare(
-    `
-    DELETE FROM olympiads
-    WHERE id = ?
-    `
-  )
-    .bind(id)
-    .run();
+  const result =
+    await env.DB.prepare(
+      `
+      DELETE FROM olympiads
+      WHERE id = ?
+      `
+    )
+      .bind(id)
+      .run();
 
   if (!result.meta.changes) {
     return response(
       request,
       env,
       {
-        error: "Olimpíada não encontrada.",
+        error:
+          "Olimpíada não encontrada.",
       },
       404
     );
@@ -971,169 +1446,16 @@ async function handleDeleteOlympiad(
 }
 
 // ============================================================
-// BOOTSTRAP DO PRIMEIRO ADMINISTRADOR
+// LIMPEZA DE SESSÕES
 // ============================================================
 
-async function handleBootstrapAdmin(
-  request,
+async function cleanupExpiredSessions(
   env
 ) {
-  const secret =
-    request.headers.get("X-Bootstrap-Secret");
-
-  if (
-    !secret ||
-    !env.ADMIN_BOOTSTRAP_SECRET ||
-    secret !== env.ADMIN_BOOTSTRAP_SECRET
-  ) {
-    return response(
-      request,
-      env,
-      {
-        error: "Não autorizado.",
-      },
-      401
+  const now =
+    Math.floor(
+      Date.now() / 1000
     );
-  }
-
-  const existingAdmin = await env.DB.prepare(
-    `
-    SELECT id
-    FROM users
-    WHERE role = 'admin'
-    LIMIT 1
-    `
-  ).first();
-
-  if (existingAdmin) {
-    return response(
-      request,
-      env,
-      {
-        error:
-          "O administrador inicial já foi criado.",
-      },
-      409
-    );
-  }
-
-  const body = await readJson(request);
-
-  if (!body) {
-    return response(
-      request,
-      env,
-      {
-        error: "JSON inválido.",
-      },
-      400
-    );
-  }
-
-  const name =
-    typeof body.name === "string"
-      ? body.name.trim()
-      : "";
-
-  const email =
-    typeof body.email === "string"
-      ? body.email.trim().toLowerCase()
-      : "";
-
-  const password =
-    typeof body.password === "string"
-      ? body.password
-      : "";
-
-  if (!name || !isValidEmail(email)) {
-    return response(
-      request,
-      env,
-      {
-        error: "Nome ou email inválidos.",
-      },
-      400
-    );
-  }
-
-  if (password.length < 12) {
-    return response(
-      request,
-      env,
-      {
-        error:
-          "A senha deve possuir pelo menos 12 caracteres.",
-      },
-      400
-    );
-  }
-
-  const existingUser = await env.DB.prepare(
-    `
-    SELECT id
-    FROM users
-    WHERE LOWER(email) = ?
-    LIMIT 1
-    `
-  )
-    .bind(email)
-    .first();
-
-  if (existingUser) {
-    return response(
-      request,
-      env,
-      {
-        error:
-          "Já existe um usuário com esse email.",
-      },
-      409
-    );
-  }
-
-  const passwordHash =
-    await createPasswordHash(password);
-
-  const result = await env.DB.prepare(
-    `
-    INSERT INTO users (
-      name,
-      email,
-      password_hash,
-      role
-    )
-    VALUES (?, ?, ?, 'admin')
-    `
-  )
-    .bind(
-      name,
-      email,
-      passwordHash
-    )
-    .run();
-
-  return response(
-    request,
-    env,
-    {
-      ok: true,
-      user: {
-        id: result.meta.last_row_id,
-        name,
-        email,
-        role: "admin",
-      },
-    },
-    201
-  );
-}
-
-// ============================================================
-// LIMPEZA DE SESSÕES EXPIRADAS
-// ============================================================
-
-async function cleanupExpiredSessions(env) {
-  const now = Math.floor(Date.now() / 1000);
 
   try {
     await env.DB.prepare(
@@ -1145,7 +1467,7 @@ async function cleanupExpiredSessions(env) {
       .bind(now)
       .run();
   } catch {
-    // A limpeza não deve impedir uma requisição.
+    // Não interromper a requisição.
   }
 }
 
@@ -1157,18 +1479,31 @@ export default {
   async fetch(request, env) {
     try {
       // --------------------------------------------------------
-      // OPTIONS / CORS
+      // CORS
       // --------------------------------------------------------
 
-      if (request.method === "OPTIONS") {
-        return new Response(null, {
-          status: 204,
-          headers: corsHeaders(request, env),
-        });
+      if (
+        request.method ===
+        "OPTIONS"
+      ) {
+        return new Response(
+          null,
+          {
+            status: 204,
+            headers:
+              corsHeaders(
+                request,
+                env
+              ),
+          }
+        );
       }
 
-      const url = new URL(request.url);
-      const path = url.pathname;
+      const url =
+        new URL(request.url);
+
+      const path =
+        url.pathname;
 
       // --------------------------------------------------------
       // HOME
@@ -1176,9 +1511,13 @@ export default {
 
       if (
         path === "/" &&
-        request.method === "GET"
+        request.method ===
+          "GET"
       ) {
-        return handleRoot(request, env);
+        return handleRoot(
+          request,
+          env
+        );
       }
 
       // --------------------------------------------------------
@@ -1186,10 +1525,15 @@ export default {
       // --------------------------------------------------------
 
       if (
-        path === "/api/login" &&
-        request.method === "POST"
+        path ===
+          "/api/login" &&
+        request.method ===
+          "POST"
       ) {
-        return await handleLogin(request, env);
+        return await handleLogin(
+          request,
+          env
+        );
       }
 
       // --------------------------------------------------------
@@ -1197,21 +1541,46 @@ export default {
       // --------------------------------------------------------
 
       if (
-        path === "/api/logout" &&
-        request.method === "POST"
+        path ===
+          "/api/logout" &&
+        request.method ===
+          "POST"
       ) {
-        return await handleLogout(request, env);
+        return await handleLogout(
+          request,
+          env
+        );
       }
 
       // --------------------------------------------------------
-      // USUÁRIO ATUAL
+      // ME
       // --------------------------------------------------------
 
       if (
         path === "/api/me" &&
-        request.method === "GET"
+        request.method ===
+          "GET"
       ) {
-        return await handleMe(request, env);
+        return await handleMe(
+          request,
+          env
+        );
+      }
+
+      // --------------------------------------------------------
+      // RESET TEMPORÁRIO DE SENHA
+      // --------------------------------------------------------
+
+      if (
+        path ===
+          "/api/reset-admin-password" &&
+        request.method ===
+          "POST"
+      ) {
+        return await handleResetAdminPassword(
+          request,
+          env
+        );
       }
 
       // --------------------------------------------------------
@@ -1219,8 +1588,10 @@ export default {
       // --------------------------------------------------------
 
       if (
-        path === "/api/bootstrap-admin" &&
-        request.method === "POST"
+        path ===
+          "/api/bootstrap-admin" &&
+        request.method ===
+          "POST"
       ) {
         return await handleBootstrapAdmin(
           request,
@@ -1229,12 +1600,14 @@ export default {
       }
 
       // --------------------------------------------------------
-      // OLIMPÍADAS — LISTAGEM
+      // OLIMPÍADAS — LISTAR
       // --------------------------------------------------------
 
       if (
-        path === "/api/olympiads" &&
-        request.method === "GET"
+        path ===
+          "/api/olympiads" &&
+        request.method ===
+          "GET"
       ) {
         return await handleListOlympiads(
           request,
@@ -1243,12 +1616,14 @@ export default {
       }
 
       // --------------------------------------------------------
-      // OLIMPÍADAS — CRIAÇÃO
+      // OLIMPÍADAS — CRIAR
       // --------------------------------------------------------
 
       if (
-        path === "/api/olympiads" &&
-        request.method === "POST"
+        path ===
+          "/api/olympiads" &&
+        request.method ===
+          "POST"
       ) {
         return await handleCreateOlympiad(
           request,
@@ -1266,12 +1641,14 @@ export default {
         );
 
       if (olympiadMatch) {
-        const id = Number(
-          olympiadMatch[1]
-        );
+        const id =
+          Number(
+            olympiadMatch[1]
+          );
 
         if (
-          request.method === "GET"
+          request.method ===
+          "GET"
         ) {
           return await handleGetOlympiad(
             request,
@@ -1281,7 +1658,8 @@ export default {
         }
 
         if (
-          request.method === "PUT"
+          request.method ===
+          "PUT"
         ) {
           return await handleUpdateOlympiad(
             request,
@@ -1291,7 +1669,8 @@ export default {
         }
 
         if (
-          request.method === "DELETE"
+          request.method ===
+          "DELETE"
         ) {
           return await handleDeleteOlympiad(
             request,
@@ -1302,10 +1681,12 @@ export default {
       }
 
       // --------------------------------------------------------
-      // LIMPEZA DE SESSÕES
+      // LIMPEZA
       // --------------------------------------------------------
 
-      await cleanupExpiredSessions(env);
+      await cleanupExpiredSessions(
+        env
+      );
 
       // --------------------------------------------------------
       // 404
@@ -1315,7 +1696,8 @@ export default {
         request,
         env,
         {
-          error: "Rota não encontrada.",
+          error:
+            "Rota não encontrada.",
         },
         404
       );
@@ -1326,7 +1708,8 @@ export default {
         request,
         env,
         {
-          error: "Erro interno do servidor.",
+          error:
+            "Erro interno do servidor.",
         },
         500
       );
