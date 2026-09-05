@@ -1,0 +1,26 @@
+INSERT INTO olympiads
+(acronym, name, area, modality, registration_method, registration_deadline,
+ number_of_phases, phase_1_date, phase_2_date, status, extra)
+VALUES
+('OBMEP',
+ 'Olimpíada Brasileira de Matemática das Escolas Públicas',
+ 'Matemática',
+ 'Individual',
+ 'Escola',
+ '2026-03-10',
+ 2,
+ '2026-06-09',
+ '2026-10-17',
+ 'Inscrito',
+ 'Exemplo inicial. Substituir pelos dados reais do CTC.'),
+('OBF',
+ 'Olimpíada Brasileira de Física',
+ 'Física',
+ 'Individual',
+ 'Escola',
+ '2026-04-15',
+ 3,
+ NULL,
+ NULL,
+ 'Não inscrito',
+ 'Exemplo inicial. Substituir pelos dados reais do CTC.');

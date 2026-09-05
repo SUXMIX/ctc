@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Painel | CTC</title>
+  <link rel="icon" type="image/png" href="assets/logo-ctc.png">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="index.html">
+      <img src="assets/logo-ctc.png" alt="Logo CTC">
+      <div><strong>CTC</strong><span>Painel administrativo</span></div>
+    </a>
+    <nav>
+      <a href="olimpiadas.html">Ver site público</a>
+      <button id="logoutButton" class="nav-button">Sair</button>
+    </nav>
+  </header>
+
+  <main>
+    <section class="page-hero compact">
+      <span class="eyebrow">Área administrativa</span>
+      <h1>Painel do CTC</h1>
+      <p id="userGreeting">Verificando acesso...</p>
+    </section>
+
+    <section class="section">
+      <div class="panel-actions">
+        <h2>Olimpíadas cadastradas</h2>
+        <button id="newOlympiadButton" class="button primary">+ Nova olimpíada</button>
+      </div>
+      <div id="adminMessage" class="form-message"></div>
+      <div class="table-wrap">
+        <table id="adminTable">
+          <thead><tr><th>Sigla</th><th>Nome</th><th>Área</th><th>Status</th><th>Ações</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <div class="modal hidden" id="editorModal">
+    <div class="modal-backdrop" data-close-editor></div>
+    <div class="modal-card editor-card">
+      <button class="modal-close" data-close-editor aria-label="Fechar">×</button>
+      <span class="eyebrow">Cadastro</span>
+      <h2 id="editorTitle">Nova olimpíada</h2>
+
+      <form id="olympiadForm" class="form-grid">
+        <input type="hidden" id="editId">
+
+        <div><label for="acronym">Sigla</label><input id="acronym" required></div>
+        <div><label for="name">Nome</label><input id="name" required></div>
+        <div><label for="area">Área</label><input id="area"></div>
+        <div><label for="modality">Modalidade</label><input id="modality"></div>
+        <div><label for="registration_method">Forma de inscrição</label><input id="registration_method"></div>
+        <div><label for="registration_deadline">Prazo de inscrição</label><input id="registration_deadline" type="date"></div>
+        <div><label for="number_of_phases">Nº de fases</label><input id="number_of_phases" type="number" min="0"></div>
+        <div><label for="status">Status</label>
+          <select id="status">
+            <option value="Não inscrito">Não inscrito</option>
+            <option value="Inscrito">Inscrito</option>
+            <option value="Em análise">Em análise</option>
+            <option value="Encerrado">Encerrado</option>
+          </select>
+        </div>
+        <div><label for="phase_1_date">Fase 1</label><input id="phase_1_date" type="date"></div>
+        <div><label for="phase_2_date">Fase 2</label><input id="phase_2_date" type="date"></div>
+        <div><label for="phase_3_date">Fase 3</label><input id="phase_3_date" type="date"></div>
+        <div><label for="phase_4_date">Fase 4</label><input id="phase_4_date" type="date"></div>
+        <div class="full-width"><label for="extra">Observações / informações adicionais</label><textarea id="extra" rows="4"></textarea></div>
+
+        <div class="form-actions full-width">
+          <button type="button" class="button secondary" data-close-editor>Cancelar</button>
+          <button type="submit" class="button primary">Salvar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="js/config.js"></script>
+  <script src="js/painel.js"></script>
+</body>
+</html>

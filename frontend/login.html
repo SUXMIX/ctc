@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Acesso | CTC</title>
+  <link rel="icon" type="image/png" href="assets/logo-ctc.png">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="index.html">
+      <img src="assets/logo-ctc.png" alt="Logo CTC">
+      <div><strong>CTC</strong><span>Comitê Técnico-Científico</span></div>
+    </a>
+    <button class="menu-toggle" id="menuToggle" aria-label="Abrir menu">☰</button>
+    <nav id="mainNav">
+      <a href="index.html">Início</a>
+      <a href="olimpiadas.html">Oportunidades</a>
+      <a href="documentos.html">Documentos</a>
+      <a class="active nav-login" href="login.html">Acesso</a>
+    </nav>
+  </header>
+
+  <main class="login-main">
+    <section class="login-card">
+      <img src="assets/logo-ctc.png" alt="" class="login-logo">
+      <span class="eyebrow">Área restrita</span>
+      <h1>Entrar</h1>
+      <p class="muted">Acesso destinado aos responsáveis pela atualização das informações do CTC.</p>
+
+      <form id="loginForm">
+        <label for="email">E-mail</label>
+        <input id="email" name="email" type="email" autocomplete="username" required>
+
+        <label for="password">Senha</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" required>
+
+        <button class="button primary full" type="submit">Entrar</button>
+        <p id="loginMessage" class="form-message"></p>
+      </form>
+    </section>
+  </main>
+
+  <script src="js/config.js"></script>
+  <script src="js/main.js"></script>
+  <script src="js/login.js"></script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+name = "ctc-ifba-api"
+main = "src/index.js"
+compatibility_date = "2026-09-05"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "ctc"
+database_id = "COLOQUE_O_ID_DO_D1_AQUI"
+
+[vars]
+FRONTEND_ORIGIN = "https://SEU-USUARIO.github.io"
+SESSION_DAYS = "7"

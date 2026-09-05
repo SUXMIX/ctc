@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Olimpíadas e oportunidades do CTC">
+  <title>Oportunidades | CTC</title>
+  <link rel="icon" type="image/png" href="assets/logo-ctc.png">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="index.html">
+      <img src="assets/logo-ctc.png" alt="Logo CTC">
+      <div><strong>CTC</strong><span>Comitê Técnico-Científico</span></div>
+    </a>
+    <button class="menu-toggle" id="menuToggle" aria-label="Abrir menu">☰</button>
+    <nav id="mainNav">
+      <a href="index.html">Início</a>
+      <a class="active" href="olimpiadas.html">Oportunidades</a>
+      <a href="documentos.html">Documentos</a>
+      <a href="login.html" class="nav-login">Acesso</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="page-hero">
+      <span class="eyebrow">Mural público</span>
+      <h1>Olimpíadas e oportunidades</h1>
+      <p>Consulte as oportunidades acompanhadas pelo CTC.</p>
+    </section>
+
+    <section class="section table-section">
+      <div class="toolbar">
+        <div>
+          <h2>Olimpíadas</h2>
+          <p class="muted">Clique em uma oportunidade para ver todos os detalhes.</p>
+        </div>
+        <input id="searchInput" class="search" type="search" placeholder="Pesquisar..." aria-label="Pesquisar">
+      </div>
+
+      <div id="loading" class="state">Carregando oportunidades...</div>
+      <div id="error" class="state error hidden">Não foi possível carregar os dados.</div>
+
+      <div class="table-wrap">
+        <table id="olympiadsTable">
+          <thead>
+            <tr>
+              <th>Sigla</th>
+              <th>Olimpíada</th>
+              <th>Área</th>
+              <th>Modalidade</th>
+              <th>Inscrição</th>
+              <th>Prazo</th>
+              <th>Fases</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div id="mobileList" class="mobile-list"></div>
+    </section>
+  </main>
+
+  <div class="modal hidden" id="detailsModal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modal-backdrop" data-close-modal></div>
+    <div class="modal-card">
+      <button class="modal-close" data-close-modal aria-label="Fechar">×</button>
+      <span class="eyebrow" id="modalArea">Área</span>
+      <h2 id="modalTitle">Olimpíada</h2>
+      <div id="modalDetails" class="details-grid"></div>
+    </div>
+  </div>
+
+  <footer>
+    <div><strong>CTC — IFBA Campus Irecê</strong><p>Comitê Técnico-Científico</p></div>
+    <p>Ciência • Tecnologia • Oportunidades</p>
+  </footer>
+
+  <script src="js/config.js"></script>
+  <script src="js/main.js"></script>
+  <script src="js/olimpiadas.js"></script>
+</body>
+</html>
