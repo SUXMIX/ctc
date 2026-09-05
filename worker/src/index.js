@@ -1,111 +1,145 @@
-const JSON_HEADERS = {
-  "Content-Type": "application/json; charset=UTF-8",
-};
-
 const PBKDF2_ITERATIONS = 100000;
+const SESSION_COOKIE_NAME = "ctc_session";
 
-function json(data, status = 200, extraHeaders = {}) {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: {
-      ...JSON_HEADERS,
-      ...extraHeaders,
-    },
-  });
+// ============================================================
+// CONFIGURAÇÕES
+// ============================================================
+
+function getFrontendOrigin(env) {
+  return env.FRONTEND_ORIGIN || "https://suxmix.github.io";
 }
 
-function getOrigin(request) {
-  return request.headers.get("Origin");
-}
+// ============================================================
+// RESPOSTAS / CORS
+// ============================================================
 
 function corsHeaders(request, env) {
-  const origin = getOrigin(request);
-  const allowedOrigin = env.FRONTEND_ORIGIN;
+  const origin = request.headers.get("Origin");
+  const allowedOrigin = getFrontendOrigin(env);
 
   const headers = {
     "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
+    "Access-Control-Allow-Headers": "Content-Type, X-Bootstrap-Secret",
     "Access-Control-Allow-Credentials": "true",
     "Vary": "Origin",
   };
 
-  if (origin && origin === allowedOrigin) {
+  if (origin === allowedOrigin) {
     headers["Access-Control-Allow-Origin"] = origin;
   }
 
   return headers;
 }
 
-function response(
-  request,
-  env,
-  data,
-  status = 200,
-  extraHeaders = {}
-) {
-  return json(
-    data,
+function json(data, status = 200, headers = {}) {
+  return new Response(JSON.stringify(data), {
     status,
-    {
-      ...corsHeaders(request, env),
-      ...extraHeaders,
-    }
-  );
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+      ...headers,
+    },
+  });
+}
+
+function response(request, env, data, status = 200, extraHeaders = {}) {
+  return json(data, status, {
+    ...corsHeaders(request, env),
+    ...extraHeaders,
+  });
+}
+
+// ============================================================
+// COOKIE
+// ============================================================
+
+function createSessionCookie(token, maxAge) {
+  return [
+    `${SESSION_COOKIE_NAME}=${token}`,
+    `Max-Age=${maxAge}`,
+    "Path=/",
+    "HttpOnly",
+    "Secure",
+    "SameSite=None",
+  ].join("; ");
+}
+
+function createExpiredSessionCookie() {
+  return [
+    `${SESSION_COOKIE_NAME}=`,
+    "Max-Age=0",
+    "Path=/",
+    "HttpOnly",
+    "Secure",
+    "SameSite=None",
+  ].join("; ");
 }
 
 function getCookie(request, name) {
   const cookieHeader = request.headers.get("Cookie");
 
-  if (!cookieHeader) return null;
+  if (!cookieHeader) {
+    return null;
+  }
 
   const cookies = cookieHeader.split(";");
 
   for (const cookie of cookies) {
-    const [key, ...valueParts] = cookie.trim().split("=");
+    const separator = cookie.indexOf("=");
+
+    if (separator === -1) {
+      continue;
+    }
+
+    const key = cookie.slice(0, separator).trim();
+    const value = cookie.slice(separator + 1).trim();
 
     if (key === name) {
-      return valueParts.join("=");
+      return value;
     }
   }
 
   return null;
 }
 
-function generateToken() {
-  const bytes = new Uint8Array(32);
-  crypto.getRandomValues(bytes);
+// ============================================================
+// CRIPTOGRAFIA / SENHAS
+// ============================================================
 
-  return Array.from(bytes)
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("");
-}
-
-function generateSalt() {
-  const bytes = new Uint8Array(16);
-  crypto.getRandomValues(bytes);
-
+function bytesToHex(bytes) {
   return Array.from(bytes)
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("");
 }
 
 function hexToBytes(hex) {
+  if (!hex || hex.length % 2 !== 0) {
+    throw new Error("Hexadecimal inválido.");
+  }
+
   const bytes = new Uint8Array(hex.length / 2);
 
   for (let i = 0; i < bytes.length; i++) {
-    bytes[i] = parseInt(hex.substr(i * 2, 2), 16);
+    bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
   }
 
   return bytes;
 }
 
-function bytesToHex(bytes) {
-  return Array.from(new Uint8Array(bytes))
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("");
+function constantTimeEqual(a, b) {
+  if (a.length !== b.length) {
+    return false;
+  }
+
+  let result = 0;
+
+  for (let i = 0; i < a.length; i++) {
+    result |= a[i] ^ b[i];
+  }
+
+  return result === 0;
 }
 
-async function hashPassword(password, salt) {
+async function derivePasswordHash(password, salt, iterations) {
   const encoder = new TextEncoder();
 
   const keyMaterial = await crypto.subtle.importKey(
@@ -119,978 +153,1183 @@ async function hashPassword(password, salt) {
   const derivedBits = await crypto.subtle.deriveBits(
     {
       name: "PBKDF2",
-      salt: encoder.encode(salt),
-      iterations: PBKDF2_ITERATIONS,
+      salt,
+      iterations,
       hash: "SHA-256",
     },
     keyMaterial,
     256
   );
 
-  return bytesToHex(derivedBits);
+  return new Uint8Array(derivedBits);
 }
 
 async function createPasswordHash(password) {
-  const salt = generateSalt();
-  const hash = await hashPassword(password, salt);
+  const salt = crypto.getRandomValues(new Uint8Array(16));
 
-  // Tudo fica dentro da única coluna password_hash.
-  return `pbkdf2$${PBKDF2_ITERATIONS}$${salt}$${hash}`;
+  const hash = await derivePasswordHash(
+    password,
+    salt,
+    PBKDF2_ITERATIONS
+  );
+
+  return [
+    "pbkdf2",
+    PBKDF2_ITERATIONS,
+    bytesToHex(salt),
+    bytesToHex(hash),
+  ].join("$");
 }
 
 async function verifyPassword(password, storedHash) {
-  if (!storedHash) return false;
+  try {
+    const parts = storedHash.split("$");
 
-  const parts = storedHash.split("$");
+    if (parts.length !== 4) {
+      return false;
+    }
 
-  if (parts.length !== 4) {
+    const algorithm = parts[0];
+    const iterations = Number(parts[1]);
+    const saltHex = parts[2];
+    const hashHex = parts[3];
+
+    if (algorithm !== "pbkdf2") {
+      return false;
+    }
+
+    if (!Number.isInteger(iterations) || iterations <= 0) {
+      return false;
+    }
+
+    const salt = hexToBytes(saltHex);
+    const expectedHash = hexToBytes(hashHex);
+
+    const actualHash = await derivePasswordHash(
+      password,
+      salt,
+      iterations
+    );
+
+    return constantTimeEqual(actualHash, expectedHash);
+  } catch {
     return false;
   }
-
-  const [algorithm, iterationsString, salt, expectedHash] = parts;
-
-  if (algorithm !== "pbkdf2") {
-    return false;
-  }
-
-  const iterations = Number(iterationsString);
-
-  if (!Number.isInteger(iterations) || iterations <= 0) {
-    return false;
-  }
-
-  const actualHash = await hashPassword(password, salt);
-
-  if (actualHash.length !== expectedHash.length) {
-    return false;
-  }
-
-  let difference = 0;
-
-  for (let i = 0; i < actualHash.length; i++) {
-    difference |= actualHash.charCodeAt(i) ^ expectedHash.charCodeAt(i);
-  }
-
-  return difference === 0;
 }
 
-function sessionCookie(token, maxAge) {
-  return [
-    `ctc_session=${token}`,
-    `Max-Age=${maxAge}`,
-    "Path=/",
-    "HttpOnly",
-    "Secure",
-    "SameSite=Lax",
-  ].join("; ");
+// ============================================================
+// SESSÃO
+// ============================================================
+
+function generateSessionToken() {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  return bytesToHex(bytes);
 }
 
-function clearSessionCookie() {
-  return [
-    "ctc_session=",
-    "Max-Age=0",
-    "Path=/",
-    "HttpOnly",
-    "Secure",
-    "SameSite=Lax",
-  ].join("; ");
+async function createSession(env, userId) {
+  const token = generateSessionToken();
+
+  const sessionDays = Number(env.SESSION_DAYS || 7);
+
+  const maxAge = Math.max(
+    1,
+    sessionDays * 24 * 60 * 60
+  );
+
+  const expiresAt = Math.floor(Date.now() / 1000) + maxAge;
+
+  await env.DB.prepare(
+    `
+    INSERT INTO sessions (id, user_id, expires_at)
+    VALUES (?, ?, ?)
+    `
+  )
+    .bind(token, userId, expiresAt)
+    .run();
+
+  return {
+    token,
+    maxAge,
+    expiresAt,
+  };
 }
 
 async function getAuthenticatedUser(request, env) {
-  const token = getCookie(request, "ctc_session");
+  const token = getCookie(
+    request,
+    SESSION_COOKIE_NAME
+  );
 
   if (!token) {
     return null;
   }
 
-  const session = await env.DB.prepare(
+  const now = Math.floor(Date.now() / 1000);
+
+  const result = await env.DB.prepare(
     `
     SELECT
-      sessions.id,
-      sessions.user_id,
-      sessions.expires_at,
+      users.id,
       users.name,
       users.email,
       users.role
     FROM sessions
-    INNER JOIN users ON users.id = sessions.user_id
+    INNER JOIN users
+      ON users.id = sessions.user_id
     WHERE sessions.id = ?
+      AND sessions.expires_at > ?
     LIMIT 1
     `
   )
-    .bind(token)
+    .bind(token, now)
     .first();
 
-  if (!session) {
-    return null;
+  return result || null;
+}
+
+async function deleteSession(request, env) {
+  const token = getCookie(
+    request,
+    SESSION_COOKIE_NAME
+  );
+
+  if (!token) {
+    return;
   }
 
-  const now = Math.floor(Date.now() / 1000);
+  await env.DB.prepare(
+    `
+    DELETE FROM sessions
+    WHERE id = ?
+    `
+  )
+    .bind(token)
+    .run();
+}
 
-  if (Number(session.expires_at) <= now) {
-    await env.DB.prepare(
-      "DELETE FROM sessions WHERE id = ?"
-    )
-      .bind(token)
-      .run();
+// ============================================================
+// AUXILIARES
+// ============================================================
 
+async function readJson(request) {
+  try {
+    return await request.json();
+  } catch {
     return null;
   }
+}
 
-  return {
-    id: session.user_id,
-    name: session.name,
-    email: session.email,
-    role: session.role,
-    sessionToken: token,
-  };
+function isValidEmail(email) {
+  return (
+    typeof email === "string" &&
+    email.length <= 254 &&
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+  );
+}
+
+function requireAuthenticatedUser(user) {
+  return user !== null;
 }
 
 function requireEditor(user) {
-  return user && (user.role === "admin" || user.role === "editor");
+  return (
+    user &&
+    (user.role === "editor" || user.role === "admin")
+  );
 }
 
 function requireAdmin(user) {
   return user && user.role === "admin";
 }
 
-function normalizeOlympiad(body) {
-  return {
-    acronym: body.acronym?.trim() || "",
-    name: body.name?.trim() || "",
-    area: body.area?.trim() || "",
-    modality: body.modality?.trim() || "",
-    registration_method: body.registration_method?.trim() || "",
-    registration_deadline: body.registration_deadline || null,
-    number_of_phases:
-      body.number_of_phases === null ||
-      body.number_of_phases === undefined ||
-      body.number_of_phases === ""
-        ? null
-        : Number(body.number_of_phases),
-    phase_1_date: body.phase_1_date || null,
-    phase_2_date: body.phase_2_date || null,
-    phase_3_date: body.phase_3_date || null,
-    phase_4_date: body.phase_4_date || null,
-    status: body.status?.trim() || "",
-    extra: body.extra?.trim() || "",
-  };
+// ============================================================
+// HEALTH CHECK
+// ============================================================
+
+async function handleRoot(request, env) {
+  return response(request, env, {
+    ok: true,
+    service: "ctc-api",
+    message: "API do CTC funcionando.",
+  });
 }
 
-function validateOlympiad(data) {
-  if (!data.acronym) {
-    return "O acrônimo é obrigatório.";
-  }
+// ============================================================
+// LOGIN
+// ============================================================
 
-  if (!data.name) {
-    return "O nome da olimpíada é obrigatório.";
-  }
+async function handleLogin(request, env) {
+  const body = await readJson(request);
 
-  if (!data.area) {
-    return "A área é obrigatória.";
-  }
-
-  if (
-    data.number_of_phases !== null &&
-    (!Number.isInteger(data.number_of_phases) ||
-      data.number_of_phases < 1 ||
-      data.number_of_phases > 4)
-  ) {
-    return "O número de fases deve estar entre 1 e 4.";
-  }
-
-  return null;
-}
-
-async function setupAdmin(request, env) {
-  const authorization = request.headers.get("Authorization");
-
-  if (!authorization) {
-    return response(
-      request,
-      env,
-      { error: "Não autorizado." },
-      401
-    );
-  }
-
-  const expected = `Bearer ${env.ADMIN_SETUP_TOKEN}`;
-
-  if (authorization !== expected) {
-    return response(
-      request,
-      env,
-      { error: "Não autorizado." },
-      401
-    );
-  }
-
-  try {
-    const body = await request.json();
-
-    const name = body.name?.trim();
-    const email = body.email?.trim().toLowerCase();
-    const password = body.password;
-
-    if (!name || !email || !password) {
-      return response(
-        request,
-        env,
-        { error: "Nome, e-mail e senha são obrigatórios." },
-        400
-      );
-    }
-
-    if (password.length < 10) {
-      return response(
-        request,
-        env,
-        { error: "A senha deve ter pelo menos 10 caracteres." },
-        400
-      );
-    }
-
-    const existingAdmin = await env.DB.prepare(
-      "SELECT id FROM users WHERE role = 'admin' LIMIT 1"
-    ).first();
-
-    if (existingAdmin) {
-      return response(
-        request,
-        env,
-        { error: "O administrador inicial já foi criado." },
-        409
-      );
-    }
-
-    const existingUser = await env.DB.prepare(
-      "SELECT id FROM users WHERE email = ? LIMIT 1"
-    )
-      .bind(email)
-      .first();
-
-    if (existingUser) {
-      return response(
-        request,
-        env,
-        { error: "Este e-mail já está cadastrado." },
-        409
-      );
-    }
-
-    const passwordHash = await createPasswordHash(password);
-
-    const result = await env.DB.prepare(
-      `
-      INSERT INTO users (
-        name,
-        email,
-        password_hash,
-        role
-      )
-      VALUES (?, ?, ?, 'admin')
-      `
-    )
-      .bind(name, email, passwordHash)
-      .run();
-
+  if (!body) {
     return response(
       request,
       env,
       {
-        ok: true,
-        message: "Administrador criado com sucesso.",
-        user_id: result.meta.last_row_id,
+        error: "JSON inválido.",
       },
-      201
+      400
     );
-  } catch (error) {
-    console.error("Admin setup error:", error);
+  }
 
+  const email =
+    typeof body.email === "string"
+      ? body.email.trim().toLowerCase()
+      : "";
+
+  const password =
+    typeof body.password === "string"
+      ? body.password
+      : "";
+
+  if (!isValidEmail(email) || !password) {
     return response(
       request,
       env,
-      { error: "Erro ao criar administrador." },
-      500
+      {
+        error: "Email ou senha inválidos.",
+      },
+      400
     );
   }
+
+  const user = await env.DB.prepare(
+    `
+    SELECT
+      id,
+      name,
+      email,
+      password_hash,
+      role
+    FROM users
+    WHERE LOWER(email) = ?
+    LIMIT 1
+    `
+  )
+    .bind(email)
+    .first();
+
+  if (!user) {
+    return response(
+      request,
+      env,
+      {
+        error: "Email ou senha inválidos.",
+      },
+      401
+    );
+  }
+
+  const validPassword = await verifyPassword(
+    password,
+    user.password_hash
+  );
+
+  if (!validPassword) {
+    return response(
+      request,
+      env,
+      {
+        error: "Email ou senha inválidos.",
+      },
+      401
+    );
+  }
+
+  // Remove sessões antigas do usuário.
+  await env.DB.prepare(
+    `
+    DELETE FROM sessions
+    WHERE user_id = ?
+    `
+  )
+    .bind(user.id)
+    .run();
+
+  const session = await createSession(
+    env,
+    user.id
+  );
+
+  return response(
+    request,
+    env,
+    {
+      ok: true,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+      },
+    },
+    200,
+    {
+      "Set-Cookie": createSessionCookie(
+        session.token,
+        session.maxAge
+      ),
+    }
+  );
 }
 
-export default {
-  async fetch(request, env) {
-    
-    const url = new URL(request.url);
-    const path = url.pathname;
+// ============================================================
+// ME
+// ============================================================
 
-    // CORS preflight
-    if (request.method === "OPTIONS") {
-      return new Response(null, {
-        status: 204,
-        headers: corsHeaders(request, env),
-      });
+async function handleMe(request, env) {
+  const user = await getAuthenticatedUser(
+    request,
+    env
+  );
+
+  if (!user) {
+    return response(
+      request,
+      env,
+      {
+        authenticated: false,
+      },
+      200
+    );
+  }
+
+  return response(
+    request,
+    env,
+    {
+      authenticated: true,
+      user,
+    },
+    200
+  );
+}
+
+// ============================================================
+// LOGOUT
+// ============================================================
+
+async function handleLogout(request, env) {
+  await deleteSession(request, env);
+
+  return response(
+    request,
+    env,
+    {
+      ok: true,
+    },
+    200,
+    {
+      "Set-Cookie": createExpiredSessionCookie(),
     }
+  );
+}
 
-    if (path === "/api/setup-admin" &&request.method === "POST") {
-    return setupAdmin(request, env);
-    }
-    
-    // Endpoint básico para verificar se o Worker está online.
-    if (path === "/" && request.method === "GET") {
-      return response(request, env, {
-        ok: true,
-        service: "CTC API",
-      });
-    }
+// ============================================================
+// OLIMPÍADAS — LISTAR
+// ============================================================
 
-    // =========================================================
-    // LOGIN
-    // =========================================================
-
-
-    // =========================================================
-// BOOTSTRAP DO PRIMEIRO ADMINISTRADOR
-// =========================================================
-
-if (
-  path === "/api/bootstrap-admin" &&
-  request.method === "POST"
+async function handleListOlympiads(
+  request,
+  env
 ) {
-  try {
-    const bootstrapSecret =
-      request.headers.get("X-Bootstrap-Secret");
+  const result = await env.DB.prepare(
+    `
+    SELECT
+      id,
+      acronym,
+      name,
+      area,
+      modality,
+      registration_method,
+      registration_deadline,
+      number_of_phases,
+      phase_1_date,
+      phase_2_date,
+      phase_3_date,
+      phase_4_date,
+      status,
+      extra,
+      created_at,
+      updated_at
+    FROM olympiads
+    ORDER BY
+      registration_deadline IS NULL,
+      registration_deadline ASC,
+      acronym ASC
+    `
+  ).all();
 
-    if (
-      !bootstrapSecret ||
-      !env.ADMIN_BOOTSTRAP_SECRET ||
-      bootstrapSecret !== env.ADMIN_BOOTSTRAP_SECRET
-    ) {
-      return response(
-        request,
-        env,
-        { error: "Não autorizado." },
-        401
-      );
+  return response(
+    request,
+    env,
+    {
+      olympiads: result.results || [],
     }
+  );
+}
 
-    // A rota só pode ser usada enquanto não existir
-    // nenhum administrador.
-    const existingAdmin = await env.DB.prepare(
-      `
-      SELECT id
-      FROM users
-      WHERE role = 'admin'
-      LIMIT 1
-      `
-    ).first();
+// ============================================================
+// OLIMPÍADAS — UMA
+// ============================================================
 
-    if (existingAdmin) {
-      return response(
-        request,
-        env,
-        {
-          error:
-            "O administrador inicial já foi criado. Esta rota está desativada.",
-        },
-        403
-      );
-    }
+async function handleGetOlympiad(
+  request,
+  env,
+  id
+) {
+  const olympiad = await env.DB.prepare(
+    `
+    SELECT
+      id,
+      acronym,
+      name,
+      area,
+      modality,
+      registration_method,
+      registration_deadline,
+      number_of_phases,
+      phase_1_date,
+      phase_2_date,
+      phase_3_date,
+      phase_4_date,
+      status,
+      extra,
+      created_at,
+      updated_at
+    FROM olympiads
+    WHERE id = ?
+    LIMIT 1
+    `
+  )
+    .bind(id)
+    .first();
 
-    const body = await request.json();
-
-    const name = body.name?.trim();
-    const email = body.email?.trim().toLowerCase();
-    const password = body.password;
-
-    if (!name || !email || !password) {
-      return response(
-        request,
-        env,
-        {
-          error:
-            "Nome, e-mail e senha são obrigatórios.",
-        },
-        400
-      );
-    }
-
-    if (password.length < 12) {
-      return response(
-        request,
-        env,
-        {
-          error:
-            "A senha deve possuir pelo menos 12 caracteres.",
-        },
-        400
-      );
-    }
-
-    // Verifica se o e-mail já está cadastrado.
-    const existingUser = await env.DB.prepare(
-      `
-      SELECT id
-      FROM users
-      WHERE email = ?
-      LIMIT 1
-      `
-    )
-      .bind(email)
-      .first();
-
-    if (existingUser) {
-      return response(
-        request,
-        env,
-        {
-          error:
-            "Já existe um usuário com esse e-mail.",
-        },
-        409
-      );
-    }
-
-    const passwordHash = await createPasswordHash(password);
-
-    const result = await env.DB.prepare(
-      `
-      INSERT INTO users (
-        name,
-        email,
-        password_hash,
-        role
-      )
-      VALUES (?, ?, ?, 'admin')
-      `
-    )
-      .bind(
-        name,
-        email,
-        passwordHash
-      )
-      .run();
-
+  if (!olympiad) {
     return response(
       request,
       env,
       {
-        ok: true,
-        message:
-          "Administrador criado com sucesso.",
-        user: {
-          id: result.meta.last_row_id,
-          name,
-          email,
-          role: "admin",
-        },
+        error: "Olimpíada não encontrada.",
       },
-      201
+      404
     );
-  } catch (error) {
-    console.error(
-      "Bootstrap admin error:",
-      error
-    );
+  }
 
+  return response(
+    request,
+    env,
+    {
+      olympiad,
+    }
+  );
+}
+
+// ============================================================
+// OLIMPÍADAS — CRIAR
+// ============================================================
+
+async function handleCreateOlympiad(
+  request,
+  env
+) {
+  const user = await getAuthenticatedUser(
+    request,
+    env
+  );
+
+  if (!requireEditor(user)) {
+    return response(
+      request,
+      env,
+      {
+        error: "Acesso não autorizado.",
+      },
+      401
+    );
+  }
+
+  const body = await readJson(request);
+
+  if (!body) {
+    return response(
+      request,
+      env,
+      {
+        error: "JSON inválido.",
+      },
+      400
+    );
+  }
+
+  const acronym = body.acronym || "";
+  const name = body.name || "";
+  const area = body.area || "";
+  const modality = body.modality || "";
+  const registrationMethod =
+    body.registration_method || "";
+  const registrationDeadline =
+    body.registration_deadline || null;
+
+  const numberOfPhases =
+    body.number_of_phases !== undefined &&
+    body.number_of_phases !== null &&
+    body.number_of_phases !== ""
+      ? Number(body.number_of_phases)
+      : null;
+
+  const phase1 = body.phase_1_date || null;
+  const phase2 = body.phase_2_date || null;
+  const phase3 = body.phase_3_date || null;
+  const phase4 = body.phase_4_date || null;
+
+  const status = body.status || "";
+  const extra = body.extra || "";
+
+  if (!acronym || !name) {
     return response(
       request,
       env,
       {
         error:
-          "Erro interno ao criar administrador.",
+          "A sigla e o nome da olimpíada são obrigatórios.",
       },
-      500
+      400
     );
   }
+
+  const now = new Date().toISOString();
+
+  const result = await env.DB.prepare(
+    `
+    INSERT INTO olympiads (
+      acronym,
+      name,
+      area,
+      modality,
+      registration_method,
+      registration_deadline,
+      number_of_phases,
+      phase_1_date,
+      phase_2_date,
+      phase_3_date,
+      phase_4_date,
+      status,
+      extra,
+      created_at,
+      updated_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `
+  )
+    .bind(
+      acronym,
+      name,
+      area,
+      modality,
+      registrationMethod,
+      registrationDeadline,
+      numberOfPhases,
+      phase1,
+      phase2,
+      phase3,
+      phase4,
+      status,
+      extra,
+      now,
+      now
+    )
+    .run();
+
+  return response(
+    request,
+    env,
+    {
+      ok: true,
+      id: result.meta.last_row_id,
+    },
+    201
+  );
 }
-    if (path === "/api/login" && request.method === "POST") {
-      try {
-        const body = await request.json();
 
-        const email = body.email?.trim().toLowerCase();
-        const password = body.password;
+// ============================================================
+// OLIMPÍADAS — EDITAR
+// ============================================================
 
-        if (!email || !password) {
-          return response(
-            request,
-            env,
-            { error: "E-mail e senha são obrigatórios." },
-            400
-          );
-        }
-
-        const user = await env.DB.prepare(
-          `
-          SELECT id, name, email, password_hash, role
-          FROM users
-          WHERE email = ?
-          LIMIT 1
-          `
-        )
-          .bind(email)
-          .first();
-
-        if (!user) {
-          return response(
-            request,
-            env,
-            { error: "E-mail ou senha inválidos." },
-            401
-          );
-        }
-
-        const validPassword = await verifyPassword(
-          password,
-          user.password_hash
-        );
-
-        if (!validPassword) {
-          return response(
-            request,
-            env,
-            { error: "E-mail ou senha inválidos." },
-            401
-          );
-        }
-
-        // Remove sessões antigas expiradas.
-        await env.DB.prepare(
-          "DELETE FROM sessions WHERE expires_at <= ?"
-        )
-          .bind(Math.floor(Date.now() / 1000))
-          .run();
-
-        const token = generateToken();
-
-        const sessionDays = Number(env.SESSION_DAYS || 7);
-        const expiresAt =
-          Math.floor(Date.now() / 1000) +
-          sessionDays * 24 * 60 * 60;
-
-        await env.DB.prepare(
-          `
-          INSERT INTO sessions
-            (id, user_id, expires_at)
-          VALUES (?, ?, ?)
-          `
-        )
-          .bind(token, user.id, expiresAt)
-          .run();
-
-        return response(
+async function handleUpdateOlympiad(
   request,
   env,
-  {
-    ok: true,
-    user: {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-    },
-  },
-  200,
-  {
-    "Set-Cookie": sessionCookie(token, sessionDays * 24 * 60 * 60),
-  }
-);
-      } catch (error) {
-        console.error("Login error:", error);
+  id
+) {
+  const user = await getAuthenticatedUser(
+    request,
+    env
+  );
 
-        return response(
-          request,
-          env,
-          { error: "Erro interno ao realizar login." },
-          500
-        );
-      }
-    }
-
-    // =========================================================
-    // LOGOUT
-    // =========================================================
-
-    if (path === "/api/logout" && request.method === "POST") {
-      const token = getCookie(request, "ctc_session");
-
-      if (token) {
-        await env.DB.prepare(
-          "DELETE FROM sessions WHERE id = ?"
-        )
-          .bind(token)
-          .run();
-      }
-
-      return new Response(
-        JSON.stringify({ ok: true }),
-        {
-          status: 200,
-          headers: {
-            ...JSON_HEADERS,
-            ...corsHeaders(request, env),
-            "Set-Cookie": clearSessionCookie(),
-          },
-        }
-      );
-    }
-
-    // =========================================================
-    // USUÁRIO ATUAL
-    // =========================================================
-
-    if (path === "/api/me" && request.method === "GET") {
-      const user = await getAuthenticatedUser(request, env);
-
-      if (!user) {
-        return response(
-          request,
-          env,
-          { authenticated: false },
-          401
-        );
-      }
-
-      return response(request, env, {
-        authenticated: true,
-        user: {
-          id: user.id,
-          name: user.name,
-          email: user.email,
-          role: user.role,
-        },
-      });
-    }
-
-    // =========================================================
-    // LISTAR OLIMPÍADAS
-    // =========================================================
-
-    if (
-      path === "/api/olympiads" &&
-      request.method === "GET"
-    ) {
-      const result = await env.DB.prepare(
-        `
-        SELECT
-          id,
-          acronym,
-          name,
-          area,
-          modality,
-          registration_method,
-          registration_deadline,
-          number_of_phases,
-          phase_1_date,
-          phase_2_date,
-          phase_3_date,
-          phase_4_date,
-          status,
-          extra,
-          created_at,
-          updated_at
-        FROM olympiads
-        ORDER BY registration_deadline IS NULL,
-                 registration_deadline ASC,
-                 acronym ASC
-        `
-      ).all();
-
-      return response(request, env, {
-        olympiads: result.results || [],
-      });
-    }
-
-    // =========================================================
-    // OLIMPÍADA ESPECÍFICA
-    // =========================================================
-
-    const olympiadMatch = path.match(
-      /^\/api\/olympiads\/(\d+)$/
-    );
-
-    if (olympiadMatch) {
-      const id = Number(olympiadMatch[1]);
-
-      // GET
-      if (request.method === "GET") {
-        const olympiad = await env.DB.prepare(
-          `
-          SELECT
-            id,
-            acronym,
-            name,
-            area,
-            modality,
-            registration_method,
-            registration_deadline,
-            number_of_phases,
-            phase_1_date,
-            phase_2_date,
-            phase_3_date,
-            phase_4_date,
-            status,
-            extra,
-            created_at,
-            updated_at
-          FROM olympiads
-          WHERE id = ?
-          LIMIT 1
-          `
-        )
-          .bind(id)
-          .first();
-
-        if (!olympiad) {
-          return response(
-            request,
-            env,
-            { error: "Olimpíada não encontrada." },
-            404
-          );
-        }
-
-        return response(request, env, { olympiad });
-      }
-
-      // Para modificar uma olimpíada, é necessário login.
-      const user = await getAuthenticatedUser(request, env);
-
-      if (!requireEditor(user)) {
-        return response(
-          request,
-          env,
-          { error: "Acesso não autorizado." },
-          403
-        );
-      }
-
-      // PUT
-      if (request.method === "PUT") {
-        try {
-          const body = await request.json();
-          const data = normalizeOlympiad(body);
-
-          const validationError = validateOlympiad(data);
-
-          if (validationError) {
-            return response(
-              request,
-              env,
-              { error: validationError },
-              400
-            );
-          }
-
-          const result = await env.DB.prepare(
-            `
-            UPDATE olympiads
-            SET
-              acronym = ?,
-              name = ?,
-              area = ?,
-              modality = ?,
-              registration_method = ?,
-              registration_deadline = ?,
-              number_of_phases = ?,
-              phase_1_date = ?,
-              phase_2_date = ?,
-              phase_3_date = ?,
-              phase_4_date = ?,
-              status = ?,
-              extra = ?,
-              updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-            `
-          )
-            .bind(
-              data.acronym,
-              data.name,
-              data.area,
-              data.modality,
-              data.registration_method,
-              data.registration_deadline,
-              data.number_of_phases,
-              data.phase_1_date,
-              data.phase_2_date,
-              data.phase_3_date,
-              data.phase_4_date,
-              data.status,
-              data.extra,
-              id
-            )
-            .run();
-
-          if (!result.meta?.changes) {
-            return response(
-              request,
-              env,
-              { error: "Olimpíada não encontrada." },
-              404
-            );
-          }
-
-          const updated = await env.DB.prepare(
-            "SELECT * FROM olympiads WHERE id = ?"
-          )
-            .bind(id)
-            .first();
-
-          return response(request, env, {
-            ok: true,
-            olympiad: updated,
-          });
-        } catch (error) {
-          console.error("Update error:", error);
-
-          return response(
-            request,
-            env,
-            { error: "Erro ao atualizar a olimpíada." },
-            500
-          );
-        }
-      }
-
-      // DELETE
-      if (request.method === "DELETE") {
-        // Somente administrador pode excluir.
-        if (!requireAdmin(user)) {
-          return response(
-            request,
-            env,
-            {
-              error:
-                "Somente administradores podem excluir olimpíadas.",
-            },
-            403
-          );
-        }
-
-        const result = await env.DB.prepare(
-          "DELETE FROM olympiads WHERE id = ?"
-        )
-          .bind(id)
-          .run();
-
-        if (!result.meta?.changes) {
-          return response(
-            request,
-            env,
-            { error: "Olimpíada não encontrada." },
-            404
-          );
-        }
-
-        return response(request, env, {
-          ok: true,
-        });
-      }
-    }
-
-    // =========================================================
-    // CRIAR OLIMPÍADA
-    // =========================================================
-
-    if (
-      path === "/api/olympiads" &&
-      request.method === "POST"
-    ) {
-      const user = await getAuthenticatedUser(request, env);
-
-      if (!requireEditor(user)) {
-        return response(
-          request,
-          env,
-          { error: "Acesso não autorizado." },
-          403
-        );
-      }
-
-      try {
-        const body = await request.json();
-        const data = normalizeOlympiad(body);
-
-        const validationError = validateOlympiad(data);
-
-        if (validationError) {
-          return response(
-            request,
-            env,
-            { error: validationError },
-            400
-          );
-        }
-
-        const result = await env.DB.prepare(
-          `
-          INSERT INTO olympiads (
-            acronym,
-            name,
-            area,
-            modality,
-            registration_method,
-            registration_deadline,
-            number_of_phases,
-            phase_1_date,
-            phase_2_date,
-            phase_3_date,
-            phase_4_date,
-            status,
-            extra
-          )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          `
-        )
-          .bind(
-            data.acronym,
-            data.name,
-            data.area,
-            data.modality,
-            data.registration_method,
-            data.registration_deadline,
-            data.number_of_phases,
-            data.phase_1_date,
-            data.phase_2_date,
-            data.phase_3_date,
-            data.phase_4_date,
-            data.status,
-            data.extra
-          )
-          .run();
-
-        const newId = result.meta.last_row_id;
-
-        const olympiad = await env.DB.prepare(
-          "SELECT * FROM olympiads WHERE id = ?"
-        )
-          .bind(newId)
-          .first();
-
-        return response(
-          request,
-          env,
-          {
-            ok: true,
-            olympiad,
-          },
-          201
-        );
-      } catch (error) {
-        console.error("Create error:", error);
-
-        return response(
-          request,
-          env,
-          { error: "Erro ao criar a olimpíada." },
-          500
-        );
-      }
-    }
-
+  if (!requireEditor(user)) {
     return response(
       request,
       env,
-      { error: "Endpoint não encontrado." },
+      {
+        error: "Acesso não autorizado.",
+      },
+      401
+    );
+  }
+
+  const body = await readJson(request);
+
+  if (!body) {
+    return response(
+      request,
+      env,
+      {
+        error: "JSON inválido.",
+      },
+      400
+    );
+  }
+
+  const existing = await env.DB.prepare(
+    `
+    SELECT *
+    FROM olympiads
+    WHERE id = ?
+    LIMIT 1
+    `
+  )
+    .bind(id)
+    .first();
+
+  if (!existing) {
+    return response(
+      request,
+      env,
+      {
+        error: "Olimpíada não encontrada.",
+      },
       404
     );
+  }
+
+  const acronym =
+    body.acronym ?? existing.acronym;
+
+  const name =
+    body.name ?? existing.name;
+
+  const area =
+    body.area ?? existing.area;
+
+  const modality =
+    body.modality ?? existing.modality;
+
+  const registrationMethod =
+    body.registration_method ??
+    existing.registration_method;
+
+  const registrationDeadline =
+    body.registration_deadline ??
+    existing.registration_deadline;
+
+  const numberOfPhases =
+    body.number_of_phases !== undefined
+      ? (
+          body.number_of_phases === null ||
+          body.number_of_phases === ""
+            ? null
+            : Number(body.number_of_phases)
+        )
+      : existing.number_of_phases;
+
+  const phase1 =
+    body.phase_1_date ??
+    existing.phase_1_date;
+
+  const phase2 =
+    body.phase_2_date ??
+    existing.phase_2_date;
+
+  const phase3 =
+    body.phase_3_date ??
+    existing.phase_3_date;
+
+  const phase4 =
+    body.phase_4_date ??
+    existing.phase_4_date;
+
+  const status =
+    body.status ?? existing.status;
+
+  const extra =
+    body.extra ?? existing.extra;
+
+  const updatedAt =
+    new Date().toISOString();
+
+  await env.DB.prepare(
+    `
+    UPDATE olympiads
+    SET
+      acronym = ?,
+      name = ?,
+      area = ?,
+      modality = ?,
+      registration_method = ?,
+      registration_deadline = ?,
+      number_of_phases = ?,
+      phase_1_date = ?,
+      phase_2_date = ?,
+      phase_3_date = ?,
+      phase_4_date = ?,
+      status = ?,
+      extra = ?,
+      updated_at = ?
+    WHERE id = ?
+    `
+  )
+    .bind(
+      acronym,
+      name,
+      area,
+      modality,
+      registrationMethod,
+      registrationDeadline,
+      numberOfPhases,
+      phase1,
+      phase2,
+      phase3,
+      phase4,
+      status,
+      extra,
+      updatedAt,
+      id
+    )
+    .run();
+
+  return response(
+    request,
+    env,
+    {
+      ok: true,
+    }
+  );
+}
+
+// ============================================================
+// OLIMPÍADAS — EXCLUIR
+// ============================================================
+
+async function handleDeleteOlympiad(
+  request,
+  env,
+  id
+) {
+  const user = await getAuthenticatedUser(
+    request,
+    env
+  );
+
+  if (!requireAdmin(user)) {
+    return response(
+      request,
+      env,
+      {
+        error: "Apenas administradores podem excluir.",
+      },
+      403
+    );
+  }
+
+  const result = await env.DB.prepare(
+    `
+    DELETE FROM olympiads
+    WHERE id = ?
+    `
+  )
+    .bind(id)
+    .run();
+
+  if (!result.meta.changes) {
+    return response(
+      request,
+      env,
+      {
+        error: "Olimpíada não encontrada.",
+      },
+      404
+    );
+  }
+
+  return response(
+    request,
+    env,
+    {
+      ok: true,
+    }
+  );
+}
+
+// ============================================================
+// BOOTSTRAP DO PRIMEIRO ADMINISTRADOR
+// ============================================================
+
+async function handleBootstrapAdmin(
+  request,
+  env
+) {
+  const secret =
+    request.headers.get("X-Bootstrap-Secret");
+
+  if (
+    !secret ||
+    !env.ADMIN_BOOTSTRAP_SECRET ||
+    secret !== env.ADMIN_BOOTSTRAP_SECRET
+  ) {
+    return response(
+      request,
+      env,
+      {
+        error: "Não autorizado.",
+      },
+      401
+    );
+  }
+
+  const existingAdmin = await env.DB.prepare(
+    `
+    SELECT id
+    FROM users
+    WHERE role = 'admin'
+    LIMIT 1
+    `
+  ).first();
+
+  if (existingAdmin) {
+    return response(
+      request,
+      env,
+      {
+        error:
+          "O administrador inicial já foi criado.",
+      },
+      409
+    );
+  }
+
+  const body = await readJson(request);
+
+  if (!body) {
+    return response(
+      request,
+      env,
+      {
+        error: "JSON inválido.",
+      },
+      400
+    );
+  }
+
+  const name =
+    typeof body.name === "string"
+      ? body.name.trim()
+      : "";
+
+  const email =
+    typeof body.email === "string"
+      ? body.email.trim().toLowerCase()
+      : "";
+
+  const password =
+    typeof body.password === "string"
+      ? body.password
+      : "";
+
+  if (!name || !isValidEmail(email)) {
+    return response(
+      request,
+      env,
+      {
+        error: "Nome ou email inválidos.",
+      },
+      400
+    );
+  }
+
+  if (password.length < 12) {
+    return response(
+      request,
+      env,
+      {
+        error:
+          "A senha deve possuir pelo menos 12 caracteres.",
+      },
+      400
+    );
+  }
+
+  const existingUser = await env.DB.prepare(
+    `
+    SELECT id
+    FROM users
+    WHERE LOWER(email) = ?
+    LIMIT 1
+    `
+  )
+    .bind(email)
+    .first();
+
+  if (existingUser) {
+    return response(
+      request,
+      env,
+      {
+        error:
+          "Já existe um usuário com esse email.",
+      },
+      409
+    );
+  }
+
+  const passwordHash =
+    await createPasswordHash(password);
+
+  const result = await env.DB.prepare(
+    `
+    INSERT INTO users (
+      name,
+      email,
+      password_hash,
+      role
+    )
+    VALUES (?, ?, ?, 'admin')
+    `
+  )
+    .bind(
+      name,
+      email,
+      passwordHash
+    )
+    .run();
+
+  return response(
+    request,
+    env,
+    {
+      ok: true,
+      user: {
+        id: result.meta.last_row_id,
+        name,
+        email,
+        role: "admin",
+      },
+    },
+    201
+  );
+}
+
+// ============================================================
+// LIMPEZA DE SESSÕES EXPIRADAS
+// ============================================================
+
+async function cleanupExpiredSessions(env) {
+  const now = Math.floor(Date.now() / 1000);
+
+  try {
+    await env.DB.prepare(
+      `
+      DELETE FROM sessions
+      WHERE expires_at <= ?
+      `
+    )
+      .bind(now)
+      .run();
+  } catch {
+    // A limpeza não deve impedir uma requisição.
+  }
+}
+
+// ============================================================
+// ROTEADOR PRINCIPAL
+// ============================================================
+
+export default {
+  async fetch(request, env) {
+    try {
+      // --------------------------------------------------------
+      // OPTIONS / CORS
+      // --------------------------------------------------------
+
+      if (request.method === "OPTIONS") {
+        return new Response(null, {
+          status: 204,
+          headers: corsHeaders(request, env),
+        });
+      }
+
+      const url = new URL(request.url);
+      const path = url.pathname;
+
+      // --------------------------------------------------------
+      // HOME
+      // --------------------------------------------------------
+
+      if (
+        path === "/" &&
+        request.method === "GET"
+      ) {
+        return handleRoot(request, env);
+      }
+
+      // --------------------------------------------------------
+      // LOGIN
+      // --------------------------------------------------------
+
+      if (
+        path === "/api/login" &&
+        request.method === "POST"
+      ) {
+        return await handleLogin(request, env);
+      }
+
+      // --------------------------------------------------------
+      // LOGOUT
+      // --------------------------------------------------------
+
+      if (
+        path === "/api/logout" &&
+        request.method === "POST"
+      ) {
+        return await handleLogout(request, env);
+      }
+
+      // --------------------------------------------------------
+      // USUÁRIO ATUAL
+      // --------------------------------------------------------
+
+      if (
+        path === "/api/me" &&
+        request.method === "GET"
+      ) {
+        return await handleMe(request, env);
+      }
+
+      // --------------------------------------------------------
+      // BOOTSTRAP ADMIN
+      // --------------------------------------------------------
+
+      if (
+        path === "/api/bootstrap-admin" &&
+        request.method === "POST"
+      ) {
+        return await handleBootstrapAdmin(
+          request,
+          env
+        );
+      }
+
+      // --------------------------------------------------------
+      // OLIMPÍADAS — LISTAGEM
+      // --------------------------------------------------------
+
+      if (
+        path === "/api/olympiads" &&
+        request.method === "GET"
+      ) {
+        return await handleListOlympiads(
+          request,
+          env
+        );
+      }
+
+      // --------------------------------------------------------
+      // OLIMPÍADAS — CRIAÇÃO
+      // --------------------------------------------------------
+
+      if (
+        path === "/api/olympiads" &&
+        request.method === "POST"
+      ) {
+        return await handleCreateOlympiad(
+          request,
+          env
+        );
+      }
+
+      // --------------------------------------------------------
+      // OLIMPÍADA ESPECÍFICA
+      // --------------------------------------------------------
+
+      const olympiadMatch =
+        path.match(
+          /^\/api\/olympiads\/(\d+)$/
+        );
+
+      if (olympiadMatch) {
+        const id = Number(
+          olympiadMatch[1]
+        );
+
+        if (
+          request.method === "GET"
+        ) {
+          return await handleGetOlympiad(
+            request,
+            env,
+            id
+          );
+        }
+
+        if (
+          request.method === "PUT"
+        ) {
+          return await handleUpdateOlympiad(
+            request,
+            env,
+            id
+          );
+        }
+
+        if (
+          request.method === "DELETE"
+        ) {
+          return await handleDeleteOlympiad(
+            request,
+            env,
+            id
+          );
+        }
+      }
+
+      // --------------------------------------------------------
+      // LIMPEZA DE SESSÕES
+      // --------------------------------------------------------
+
+      await cleanupExpiredSessions(env);
+
+      // --------------------------------------------------------
+      // 404
+      // --------------------------------------------------------
+
+      return response(
+        request,
+        env,
+        {
+          error: "Rota não encontrada.",
+        },
+        404
+      );
+    } catch (error) {
+      console.error(error);
+
+      return response(
+        request,
+        env,
+        {
+          error: "Erro interno do servidor.",
+        },
+        500
+      );
+    }
   },
 };
