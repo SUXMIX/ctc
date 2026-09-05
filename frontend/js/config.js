@@ -1,5 +1,3 @@
-// Quando o Cloudflare Worker estiver publicado, troque pelo endereço da API.
-// Exemplo: https://api.seudominio.com
 window.CTC_CONFIG = {
-  API_URL: "https://SEU-WORKER-AQUI.workers.dev"
+  API_URL: "https://ctc-api.vitorcosta7499.workers.dev"
 };
