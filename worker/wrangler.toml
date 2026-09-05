@@ -5,8 +5,8 @@ compatibility_date = "2026-09-05"
 [[d1_databases]]
 binding = "DB"
 database_name = "ctc"
-database_id = "COLOQUE_O_ID_DO_D1_AQUI"
+database_id = "66ed7305-f0d4-470d-8e1c-c35914facfdf"
 
 [vars]
-FRONTEND_ORIGIN = "https://SEU-USUARIO.github.io"
+FRONTEND_ORIGIN = "https://suxmix.github.io"
 SESSION_DAYS = "7"
